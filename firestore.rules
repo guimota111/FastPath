@@ -1,0 +1,46 @@
+rules_version = '2';
+
+// FastPath Firestore security rules.
+// Deploy with: firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // A user may read/write only their own profile.
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      // The client must never change its own plan (that's set server-side
+      // after Stripe checkout). Other profile fields are editable.
+      allow update: if isOwner(userId)
+        && request.resource.data.plan == resource.data.plan;
+      allow delete: if false;
+    }
+
+    // Masks: published masks are world-readable; only the creator can write.
+    match /masks/{maskId} {
+      allow read: if resource.data.is_published == true
+        || (isSignedIn() && resource.data.creator_id == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.creator_id == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.creator_id == request.auth.uid;
+    }
+
+    // Reviews: anyone signed in can read; users write/edit only their own.
+    match /reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+    }
+
+    // A user's personal library is private to them.
+    match /userLibrary/{userId}/{maskId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

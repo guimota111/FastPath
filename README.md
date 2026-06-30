@@ -64,3 +64,45 @@ npm run tauri dev  # app desktop completo (requer toolchain Rust + libs do SO)
 
 Copie `.env.example` para `.env` e preencha com as chaves do Firebase quando
 a integração de cloud for ativada.
+
+## Gerar o instalador (app desktop)
+
+FastPath é um app **Tauri** — gera um executável nativo que o usuário instala no
+computador (não é um web app). O `npm run dev` serve só pra testar a UI no
+navegador; o produto real é gerado com:
+
+```bash
+npm run tauri build
+```
+
+O instalador sai em `src-tauri/target/release/bundle/`:
+
+| Sistema | Saída |
+|---------|-------|
+| **Windows** | `bundle/msi/*.msi` e `bundle/nsis/*-setup.exe` |
+| **macOS**   | `bundle/dmg/*.dmg` e `bundle/macos/*.app` |
+| **Linux**   | `bundle/appimage/*.AppImage` e `bundle/deb/*.deb` |
+
+> ⚠️ O Tauri só gera o instalador do **sistema em que você está rodando** (não
+> faz cross-compile facilmente). Para o `.msi` do Windows, builde no Windows;
+> para o `.dmg`, builde no Mac.
+
+### Pré-requisitos por sistema
+
+Todos precisam do **Rust** (instale via <https://rustup.rs>). Além disso:
+
+- **Windows**: Microsoft C++ Build Tools (Visual Studio Build Tools) +
+  WebView2 (já vem no Windows 10/11).
+- **macOS**: Xcode Command Line Tools (`xcode-select --install`).
+- **Linux**: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`,
+  `libxdo-dev`, `build-essential`.
+
+### Ícones
+
+Os ícones do app estão em `src-tauri/icons/` (provisórios, letra "F" em azul).
+Para trocar, substitua `src-tauri/app-icon.png` (1024×1024) e rode
+`npm run tauri icon src-tauri/app-icon.png`.
+
+> Nota sobre assinatura: instaladores sem assinatura digital mostram um aviso
+> do SmartScreen (Windows) ou Gatekeeper (Mac). Para testes pessoais é normal;
+> para distribuir publicamente, será preciso um certificado de code signing.

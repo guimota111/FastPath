@@ -4,12 +4,14 @@ import { useEffect, useState, useCallback } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signInWithPopup,
+  signInWithCredential,
+  GoogleAuthProvider,
   signOut as fbSignOut,
   onAuthStateChanged,
   updateProfile,
 } from "firebase/auth";
-import { auth, googleProvider } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
+import { getGoogleIdToken } from "@/lib/googleOAuth";
 import { ensureUserProfile } from "@/lib/firestore";
 import type { User } from "@/lib/types";
 
@@ -63,7 +65,10 @@ export function useAuth() {
   const signInWithGoogle = useCallback(async () => {
     setState((s) => ({ ...s, error: null }));
     try {
-      await signInWithPopup(auth, googleProvider);
+      // Desktop OAuth: get a Google ID token via the system browser, then
+      // exchange it for a Firebase session. See lib/googleOAuth.ts.
+      const idToken = await getGoogleIdToken();
+      await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
     } catch (e) {
       setState((s) => ({ ...s, error: errMsg(e) }));
       throw e;

@@ -12,6 +12,8 @@ pub fn run() {
             commands::read_clipboard,
             commands::insert_text_keybykey,
             commands::simulate_paste,
+            commands::start_oauth_server,
+            commands::open_external,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

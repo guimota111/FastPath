@@ -8,24 +8,42 @@ export const TRIAL_DAYS = 15;
 /** Max masks a "basic" plan user may own. */
 export const BASIC_MASK_LIMIT = 30;
 
+/** Default "grandes áreas". Users may create more in the library. */
+export const DEFAULT_AREAS = [
+  "Gineco",
+  "Hemato",
+  "Gastro",
+  "Dermato",
+  "Masto",
+  "Partes moles",
+  "Uro",
+  "Neuro",
+] as const;
+
 /** Default categories suggested in the builder/marketplace. Users may add more. */
 export const DEFAULT_CATEGORIES = [
-  "gastro",
-  "gineco",
-  "hemato",
-  "dermato",
-  "uro",
-  "pulmao",
-  "outros",
+  "Biópsia",
+  "Citologia",
+  "Peça cirúrgica",
+  "Congelação",
+  "Geral",
 ] as const;
 
 export const DEFAULT_SETTINGS: UserSettings = {
   language: "pt-BR",
   keyByKeyDelay: 12,
-  insertMethod: "clipboard",
-  hotkeyOpenMenu: "CommandOrControl+Shift+F1",
+  insertMethod: "paste",
+  hotkeyOpenMenu: "CommandOrControl+Shift+L",
   hotkeyRunLast: "CommandOrControl+Shift+F2",
+  hotkeyConfirm: "Enter",
+  hotkeyCancel: "Esc",
+  hotkeyVoice: "CommandOrControl+Shift+V",
   historyLimit: 200,
+  voiceEnabled: true,
+  voiceLang: "pt-BR",
+  voiceSensitivity: 70,
+  startWithOS: true,
+  alwaysOnTop: true,
 };
 
 /** Whether the given plan may publish to the marketplace. */

@@ -47,8 +47,8 @@ export async function simulatePaste(): Promise<void> {
 
 /**
  * Deliver generated content to the focused app using the chosen method.
- * `clipboard` just copies; `key-by-key` types it out, with a clipboard-paste
- * fallback baked into the Rust side / browser path.
+ * `clipboard` just copies; `paste` copies then simulates Ctrl/Cmd+V;
+ * `key-by-key` types it out character by character.
  */
 export async function deliverContent(
   content: string,
@@ -57,6 +57,9 @@ export async function deliverContent(
 ): Promise<void> {
   if (method === "key-by-key") {
     await insertKeyByKey(content, delayMs);
+  } else if (method === "paste") {
+    await writeClipboard(content);
+    await simulatePaste();
   } else {
     await writeClipboard(content);
   }

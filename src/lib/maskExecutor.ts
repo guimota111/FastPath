@@ -147,4 +147,88 @@ export function canCreateMask(plan: Plan, currentCount: number): boolean {
   return currentCount < maskQuota(plan);
 }
 
+// ---------------------------------------------------------------------------
+// Template <-> blocks conversion.
+// The mask editor works on a "template" string with {{variable}} placeholders
+// plus a list of field definitions; storage/execution uses the block tree.
+
+const PLACEHOLDER_RE = /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
+
+/** Collect every variable block in the tree, deduped by name, in order. */
+export function collectFieldDefs(blocks: MaskBlock[]): VariableBlock[] {
+  const out: VariableBlock[] = [];
+  const seen = new Set<string>();
+  const visit = (bs: MaskBlock[]) => {
+    for (const b of bs) {
+      if (b.type === "variable") {
+        const name = normalizeMaskVariableName(b.variable_name);
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          out.push({ ...b, variable_name: name });
+        }
+      } else if (b.type === "conditional") {
+        visit(b.blocks);
+      }
+    }
+  };
+  visit(blocks);
+  return out;
+}
+
+/**
+ * Flatten a block tree back into a template string. Conditional sections are
+ * inlined (their content emitted in place) — the template editor does not
+ * round-trip conditions.
+ */
+export function blocksToTemplate(blocks: MaskBlock[]): string {
+  let out = "";
+  for (const block of blocks) {
+    switch (block.type) {
+      case "text":
+        out += block.content;
+        break;
+      case "variable":
+        out += `{{${normalizeMaskVariableName(block.variable_name)}}}`;
+        break;
+      case "conditional":
+        out += blocksToTemplate(block.blocks);
+        break;
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse a template string into alternating text/variable blocks. Placeholders
+ * without a matching field definition get a plain text field created for them.
+ */
+export function templateToBlocks(
+  template: string,
+  fields: VariableBlock[],
+  makeId: () => string = () => Math.random().toString(36).slice(2, 10),
+): MaskBlock[] {
+  const byName = new Map(fields.map((f) => [normalizeMaskVariableName(f.variable_name), f]));
+  const blocks: MaskBlock[] = [];
+  let lastIndex = 0;
+
+  for (const match of template.matchAll(PLACEHOLDER_RE)) {
+    const idx = match.index ?? 0;
+    if (idx > lastIndex) {
+      blocks.push({ id: makeId(), type: "text", content: template.slice(lastIndex, idx) });
+    }
+    const name = normalizeMaskVariableName(match[1]);
+    const def = byName.get(name);
+    blocks.push(
+      def
+        ? { ...def, id: makeId(), variable_name: name }
+        : { id: makeId(), type: "variable", variable_name: name, field_type: "text", required: false },
+    );
+    lastIndex = idx + match[0].length;
+  }
+  if (lastIndex < template.length) {
+    blocks.push({ id: makeId(), type: "text", content: template.slice(lastIndex) });
+  }
+  return blocks;
+}
+
 export { BASIC_MASK_LIMIT };

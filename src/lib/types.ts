@@ -9,7 +9,13 @@ export type FieldType = "text" | "textarea" | "select" | "checkbox";
 
 export type ConditionOperator = "equals" | "contains";
 
-export type ExecutionMethod = "clipboard" | "key-by-key";
+/**
+ * How generated text reaches the external report system:
+ * - `clipboard`: copy only ("Copiar")
+ * - `paste`: copy + simulated Ctrl/Cmd+V ("Colar automaticamente")
+ * - `key-by-key`: simulated typing ("Digitar no sistema")
+ */
+export type ExecutionMethod = "clipboard" | "paste" | "key-by-key";
 
 /** A user input field that gets substituted into the generated report. */
 export interface VariableBlock {
@@ -57,7 +63,9 @@ export interface Mask {
   creator_id: string;
   name: string;
   description?: string;
-  /** User-defined category, e.g. "gastro" | "gineco" | "hemato". */
+  /** Grande área, e.g. "Gineco" | "Hemato" | "Gastro". User-extensible. */
+  area: string;
+  /** Categoria / tipo de amostra, e.g. "Biópsia", "Citologia". */
   category: string;
   blocks: MaskBlock[];
   is_published: boolean;
@@ -109,6 +117,16 @@ export interface UserSettings {
   insertMethod: ExecutionMethod;
   hotkeyOpenMenu: string;
   hotkeyRunLast: string;
+  hotkeyConfirm: string;
+  hotkeyCancel: string;
+  hotkeyVoice: string;
   /** Max history entries kept locally before pruning. */
   historyLimit: number;
+  /** Voice dictation (stub until STT engine is wired). */
+  voiceEnabled: boolean;
+  voiceLang: Language;
+  /** Mic sensitivity 0-100. */
+  voiceSensitivity: number;
+  startWithOS: boolean;
+  alwaysOnTop: boolean;
 }

@@ -25,20 +25,30 @@ digitação de laudos através de máscaras customizáveis.
   acessa os próprios dados; `plan` não pode ser alterado pelo cliente.
 - ✅ Tipos de domínio compartilhados (`src/lib/types.ts`).
 - ✅ i18n PT-BR/EN (`src/lib/i18n.ts`).
-- ✅ Store Zustand persistido (máscaras, settings, histórico local).
-- ✅ Shell React navegável: Auth, Dashboard, Builder (com live preview),
-  Executor (form dinâmico + copiar/inserir), Settings e placeholder do
-  Marketplace.
+- ✅ Store Zustand persistido (máscaras, grandes áreas, settings, histórico
+  local) com máscaras de exemplo semeadas no primeiro uso.
+- ✅ **UI FastPath** (design do Claude Design, `Assistente de Laudos`):
+  - **Painel flutuante**: menu de máscaras agrupado por grande área (Gineco,
+    Hemato, Gastro, …), busca, navegação por teclado (↑↓/Enter), form dinâmico
+    com chips de opções, prévia ao vivo e saída Copiar / Colar / Digitar.
+  - **Biblioteca de máscaras**: seções por grande área (usuário pode criar
+    novas áreas), editor de máscara em página inteira com campos arrastáveis
+    para dentro do modelo de texto (`{{variável}}`), opções em caixas
+    individuais e prévia.
+  - **Configurações**: ditado por voz (stub), atalhos, método de saída,
+    idioma, iniciar com o sistema e sempre visível.
+- ✅ Integração com o SO (Tauri): janela sempre visível (`alwaysOnTop`),
+  hotkey global para abrir o painel (`tauri-plugin-global-shortcut`),
+  iniciar com o sistema (`tauri-plugin-autostart`).
 - ✅ Comandos Tauri (Rust): `write_clipboard`, `read_clipboard`,
   `insert_text_keybykey`, `simulate_paste` + capabilities.
 
 ## Ainda não implementado (próximas fases)
 
+- Ditado por voz real (UI pronta; falta engine de speech-to-text)
 - Sync de máscaras no Firestore (atualmente local-first via Zustand)
 - Marketplace real (busca, reviews, ratings)
 - Stripe / enforcement de planos no servidor
-- Hotkeys globais (UI de registro)
-- Drag-drop no builder (atualmente reordenação por botões)
 
 ## Firebase
 

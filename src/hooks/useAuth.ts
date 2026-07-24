@@ -21,10 +21,28 @@ interface AuthState {
   error: string | null;
 }
 
+// Dev-only escape hatch so the UI can be exercised without Firebase access.
+const SKIP_AUTH = import.meta.env.DEV && import.meta.env.VITE_SKIP_AUTH === "1";
+
+const DEV_USER: User = {
+  uid: "dev-user",
+  email: "dev@fastpath.local",
+  name: "Dev",
+  plan: "trial",
+  trial_expires: new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString(),
+  language: "pt-BR",
+  created_at: new Date().toISOString(),
+};
+
 export function useAuth() {
-  const [state, setState] = useState<AuthState>({ user: null, loading: true, error: null });
+  const [state, setState] = useState<AuthState>(
+    SKIP_AUTH
+      ? { user: DEV_USER, loading: false, error: null }
+      : { user: null, loading: true, error: null },
+  );
 
   useEffect(() => {
+    if (SKIP_AUTH) return;
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
         setState({ user: null, loading: false, error: null });

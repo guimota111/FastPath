@@ -1,31 +1,29 @@
-import { useState } from "react";
-import { DashboardPage } from "./pages/DashboardPage";
-import { BuilderPage } from "./pages/BuilderPage";
+import { useCallback, useState } from "react";
+import { PanelPage } from "./pages/PanelPage";
+import { LibraryPage } from "./pages/LibraryPage";
 import { MarketplacePage } from "./pages/MarketplacePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AuthPage } from "./pages/AuthPage";
 import { useMaskStore } from "./hooks/useMaskStore";
 import { useAuth } from "./hooks/useAuth";
+import { useOsIntegration } from "./hooks/useOsIntegration";
 import { t } from "./lib/i18n";
 import { isTrialActive, trialDaysLeft } from "./lib/constants";
 
-type Route = "dashboard" | "builder" | "marketplace" | "settings";
+type Route = "panel" | "library" | "marketplace" | "settings";
 
 export default function App() {
-  const [route, setRoute] = useState<Route>("dashboard");
-  const [editingMaskId, setEditingMaskId] = useState<string | null>(null);
+  const [route, setRoute] = useState<Route>("panel");
   const lang = useMaskStore((s) => s.settings.language);
   const { user, loading, error, signIn, signUp, signInWithGoogle, signOut } = useAuth();
 
-  const go = (r: Route, maskId: string | null = null) => {
-    setEditingMaskId(maskId);
-    setRoute(r);
-  };
+  const openPanel = useCallback(() => setRoute("panel"), []);
+  useOsIntegration(openPanel);
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
-        <span className="text-slate-400">Carregando…</span>
+      <div className="flex min-h-screen items-center justify-center bg-card">
+        <span className="text-muted">Carregando…</span>
       </div>
     );
   }
@@ -42,8 +40,8 @@ export default function App() {
   }
 
   const navItems: { key: Route; label: string }[] = [
-    { key: "dashboard", label: t("dashboard.title", lang) },
-    { key: "builder", label: t("builder.title", lang) },
+    { key: "panel", label: t("nav.panel", lang) },
+    { key: "library", label: t("nav.library", lang) },
     { key: "marketplace", label: t("marketplace.title", lang) },
     { key: "settings", label: t("settings.title", lang) },
   ];
@@ -52,44 +50,49 @@ export default function App() {
   const planLabel = trialing ? `trial · ${trialDaysLeft(user)}d` : user.plan;
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-      <header className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700 px-4 py-2">
-        <span className="font-bold text-brand mr-4">{t("app.name", lang)}</span>
-        {navItems.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => go(item.key)}
-            className={`px-3 py-1.5 rounded text-sm ${
-              route === item.key
-                ? "bg-brand text-white"
-                : "hover:bg-slate-200 dark:hover:bg-slate-700"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-        <div className="ml-auto flex items-center gap-3 text-sm">
+    <div className="flex h-screen flex-col overflow-hidden bg-cream text-ink">
+      <header className="flex h-[58px] flex-shrink-0 items-center gap-4 border-b border-line bg-white px-5">
+        <div className="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded-[14px] bg-sand">
+          <span className="font-display text-sm font-bold text-brand">F</span>
+        </div>
+        <span className="font-display text-[15px] font-bold text-ink">
+          {t("app.name", lang)}
+        </span>
+        <div className="ml-auto flex gap-0.5 rounded-full bg-sand p-1">
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => setRoute(item.key)}
+              className={`rounded-full px-4 py-[9px] text-[13px] font-extrabold ${
+                route === item.key ? "bg-brand text-white" : "bg-transparent text-muted"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3 text-sm">
           <span
-            className="rounded-full bg-slate-200 px-2 py-0.5 text-xs dark:bg-slate-700"
+            className="rounded-full bg-sand px-2 py-0.5 text-xs font-bold text-ink"
             title={`Plano: ${user.plan}`}
           >
             {planLabel}
           </span>
-          <span className="text-slate-500">{user.name}</span>
-          <button onClick={signOut} className="text-xs text-slate-500 hover:text-red-500">
+          <span className="font-semibold text-muted">{user.name}</span>
+          <button onClick={signOut} className="text-xs font-bold text-muted hover:text-red-500">
             Sair
           </button>
         </div>
       </header>
 
-      <main className="flex-1 p-4">
-        {route === "dashboard" && (
-          <DashboardPage onEdit={(id) => go("builder", id)} onCreate={() => go("builder")} />
+      <main className="flex min-h-0 flex-1 flex-col">
+        {route === "panel" && <PanelPage />}
+        {route === "library" && <LibraryPage />}
+        {route === "marketplace" && (
+          <div className="page-bg flex-1 overflow-y-auto px-10 py-8">
+            <MarketplacePage />
+          </div>
         )}
-        {route === "builder" && (
-          <BuilderPage maskId={editingMaskId} onDone={() => go("dashboard")} />
-        )}
-        {route === "marketplace" && <MarketplacePage />}
         {route === "settings" && <SettingsPage />}
       </main>
     </div>

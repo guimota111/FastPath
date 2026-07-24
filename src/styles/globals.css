@@ -3,10 +3,29 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #241f2e;
+}
+
+@keyframes floatIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-bg {
+  background:
+    radial-gradient(120% 90% at 12% -10%, #fff6e6 0%, transparent 55%),
+    radial-gradient(110% 80% at 100% 0%, #eafbf1 0%, transparent 50%),
+    #fbf5ec;
 }

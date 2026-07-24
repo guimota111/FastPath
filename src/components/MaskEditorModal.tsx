@@ -41,6 +41,11 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
   const [template, setTemplate] = useState(() =>
     existing ? blocksToTemplate(existing.blocks) : "",
   );
+  // Existing fields start collapsed so big masks open with a clean overview;
+  // newly added fields start expanded for immediate editing.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
+    () => new Set(existing ? collectFieldDefs(existing.blocks).map((f) => f.id) : []),
+  );
   const templateRef = useRef<HTMLTextAreaElement>(null);
 
   // Persist continuously so closing the window never loses work.
@@ -91,6 +96,32 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
   const removeField = (fieldId: string) =>
     setFields((fs) => fs.filter((f) => f.id !== fieldId));
 
+  const toggleCollapsed = (fieldId: string) =>
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldId)) next.delete(fieldId);
+      else next.add(fieldId);
+      return next;
+    });
+
+  const collapseAll = () => setCollapsedIds(new Set(fields.map((f) => f.id)));
+  const expandAll = () => setCollapsedIds(new Set());
+
+  /** Insert the field's {{token}} at the template caret position. */
+  const insertToken = (f: VariableBlock) => {
+    const token = fieldToken(f);
+    const el = templateRef.current;
+    const start = el?.selectionStart ?? template.length;
+    const end = el?.selectionEnd ?? template.length;
+    setTemplate((tpl) => tpl.slice(0, start) + token + tpl.slice(end));
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
   const onTemplateDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
     e.preventDefault();
     const text = e.dataTransfer.getData("text/plain");
@@ -111,181 +142,266 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
     return interpolateMask(templateToBlocks(template, fields), values);
   }, [template, fields]);
 
+  const dragProps = (f: VariableBlock) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData("text/plain", fieldToken(f));
+      e.dataTransfer.effectAllowed = "copy";
+    },
+  });
+
   return (
     <div className="page-bg fixed inset-0 z-50 overflow-y-auto">
-      <div className="mx-auto max-w-[900px] px-10 pb-16 pt-7">
+      <div className="w-full px-8 pb-16 pt-6">
         <div className="mb-5 flex items-center justify-between">
           <button onClick={onClose} className="p-0 text-sm font-extrabold text-muted">
             {t("editor.back", lang)}
           </button>
+          <div className="flex gap-2">
+            <button
+              onClick={collapseAll}
+              className="rounded-[10px] bg-sand px-3.5 py-2 text-xs font-extrabold text-ink"
+            >
+              {t("editor.collapse_all", lang)}
+            </button>
+            <button
+              onClick={expandAll}
+              className="rounded-[10px] bg-sand px-3.5 py-2 text-xs font-extrabold text-ink"
+            >
+              {t("editor.expand_all", lang)}
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-[22px] rounded-3xl border border-line bg-white p-7 shadow-[0_18px_40px_-22px_rgba(60,40,20,.35)]">
+        <div className="mb-5 flex flex-col gap-[18px] rounded-3xl border border-line bg-white p-6 shadow-[0_18px_40px_-22px_rgba(60,40,20,.35)]">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full border-none py-1 font-display text-2xl font-bold text-ink outline-none"
           />
 
-          <div>
-            <div className="mb-2 text-xs font-bold text-muted">{t("editor.area", lang)}</div>
-            <div className="flex flex-wrap gap-2">
-              {areas.map((a) => (
-                <button
-                  key={a}
-                  onClick={() => setArea(a)}
-                  className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
-                    area === a
-                      ? "bg-brand text-white"
-                      : "border border-line bg-card text-ink"
-                  }`}
-                >
-                  {a}
-                </button>
-              ))}
+          <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
+            <div>
+              <div className="mb-2 text-xs font-bold text-muted">{t("editor.area", lang)}</div>
+              <div className="flex flex-wrap gap-2">
+                {areas.map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => setArea(a)}
+                    className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
+                      area === a
+                        ? "bg-brand text-white"
+                        : "border border-line bg-card text-ink"
+                    }`}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1.5 text-xs font-bold text-muted">
+                {t("editor.category", lang)}
+              </div>
+              <input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-[260px] rounded-[14px] border border-line bg-card px-3 py-2 text-[13px] font-bold text-ink outline-none"
+              />
             </div>
           </div>
+        </div>
 
-          <div>
-            <div className="mb-1.5 text-xs font-bold text-muted">
-              {t("editor.category", lang)}
-            </div>
-            <input
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-[260px] rounded-[14px] border border-line bg-card px-3 py-2 text-[13px] font-bold text-ink outline-none"
-            />
-          </div>
+        <div className="grid items-start gap-5 xl:grid-cols-2">
+          {/* Left column: fields */}
+          <div className="flex flex-col gap-[18px] rounded-3xl border border-line bg-white p-6 shadow-[0_18px_40px_-22px_rgba(60,40,20,.35)]">
+            <div>
+              <div className="mb-1.5 text-[11.5px] font-extrabold uppercase tracking-[.4px] text-muted">
+                {t("editor.fields", lang)}
+              </div>
+              <div className="mb-2.5 text-xs font-semibold text-muted">
+                {t("editor.fields_hint", lang)}
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {fields.map((f) => {
+                  const isCollapsed = collapsedIds.has(f.id);
 
-          <div>
-            <div className="mb-1.5 text-[11.5px] font-extrabold uppercase tracking-[.4px] text-muted">
-              {t("editor.fields", lang)}
-            </div>
-            <div className="mb-2.5 text-xs font-semibold text-muted">
-              {t("editor.fields_hint", lang)}
-            </div>
-            <div className="flex flex-col gap-2.5">
-              {fields.map((f) => (
-                <div
-                  key={f.id}
-                  draggable
-                  onDragStart={(e) => e.dataTransfer.setData("text/plain", fieldToken(f))}
-                  className="flex cursor-grab flex-col gap-2.5 rounded-[18px] border border-line bg-card p-3.5"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-base leading-none text-muted" title={t("editor.fields_hint", lang)}>
-                      ⠿
-                    </span>
-                    <input
-                      value={f.variable_name}
-                      onChange={(e) => renameField(f.id, e.target.value)}
-                      placeholder={t("editor.field_name", lang)}
-                      className="flex-1 rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-bold text-ink outline-none"
-                    />
-                    <button
-                      onClick={() => updateField(f.id, { field_type: "text" })}
-                      className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
-                        f.field_type !== "select"
-                          ? "bg-brand text-white"
-                          : "border border-line bg-white text-muted"
-                      }`}
-                    >
-                      {t("editor.type_text", lang)}
-                    </button>
-                    <button
-                      onClick={() =>
-                        updateField(f.id, {
-                          field_type: "select",
-                          options: f.options?.length ? f.options : [""],
-                        })
-                      }
-                      className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
-                        f.field_type === "select"
-                          ? "bg-brand text-white"
-                          : "border border-line bg-white text-muted"
-                      }`}
-                    >
-                      {t("editor.type_select", lang)}
-                    </button>
-                    <button
-                      onClick={() => removeField(f.id)}
-                      className="border-none bg-transparent text-base font-bold text-muted"
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  {f.field_type === "select" && (
-                    <div className="flex flex-wrap gap-2 pl-[26px]">
-                      {(f.options ?? []).map((opt, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center gap-1 rounded-[10px] border border-line bg-white py-1 pl-2.5 pr-1"
+                  if (isCollapsed) {
+                    return (
+                      <div
+                        key={f.id}
+                        {...dragProps(f)}
+                        onClick={() => toggleCollapsed(f.id)}
+                        className="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-line bg-card px-3.5 py-2.5"
+                      >
+                        <span className="cursor-grab text-base leading-none text-muted">⠿</span>
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-ink">
+                          {f.variable_name.replace(/_/g, " ")}
+                        </span>
+                        <span className="flex-shrink-0 rounded-full bg-sand px-2.5 py-1 text-[11px] font-extrabold text-muted">
+                          {f.field_type === "select"
+                            ? `${t("editor.type_select", lang)} · ${f.options?.length ?? 0}`
+                            : t("editor.type_text", lang)}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            insertToken(f);
+                          }}
+                          className="flex-shrink-0 rounded-[10px] bg-mint px-3 py-1.5 text-[11px] font-extrabold text-mint-ink"
                         >
-                          <input
-                            value={opt}
-                            onChange={(e) =>
-                              updateField(f.id, {
-                                options: (f.options ?? []).map((o, i) =>
-                                  i === idx ? e.target.value : o,
-                                ),
-                              })
-                            }
-                            placeholder={t("editor.option_placeholder", lang)}
-                            className="w-[140px] border-none bg-transparent text-[13px] font-semibold text-ink outline-none"
-                          />
+                          {t("editor.insert", lang)}
+                        </button>
+                        <span className="flex-shrink-0 text-xs text-muted">▸</span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={f.id}
+                      className="flex flex-col gap-2.5 rounded-[18px] border border-line bg-card p-3.5"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          {...dragProps(f)}
+                          className="cursor-grab text-base leading-none text-muted"
+                          title={t("editor.fields_hint", lang)}
+                        >
+                          ⠿
+                        </span>
+                        <input
+                          value={f.variable_name}
+                          onChange={(e) => renameField(f.id, e.target.value)}
+                          placeholder={t("editor.field_name", lang)}
+                          className="min-w-0 flex-1 rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-bold text-ink outline-none"
+                        />
+                        <button
+                          onClick={() => updateField(f.id, { field_type: "text" })}
+                          className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
+                            f.field_type !== "select"
+                              ? "bg-brand text-white"
+                              : "border border-line bg-white text-muted"
+                          }`}
+                        >
+                          {t("editor.type_text", lang)}
+                        </button>
+                        <button
+                          onClick={() =>
+                            updateField(f.id, {
+                              field_type: "select",
+                              options: f.options?.length ? f.options : [""],
+                            })
+                          }
+                          className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
+                            f.field_type === "select"
+                              ? "bg-brand text-white"
+                              : "border border-line bg-white text-muted"
+                          }`}
+                        >
+                          {t("editor.type_select", lang)}
+                        </button>
+                        <button
+                          onClick={() => insertToken(f)}
+                          className="rounded-[10px] bg-mint px-3 py-2 text-xs font-extrabold text-mint-ink"
+                        >
+                          {t("editor.insert", lang)}
+                        </button>
+                        <button
+                          onClick={() => toggleCollapsed(f.id)}
+                          title={t("editor.collapse_all", lang)}
+                          className="border-none bg-transparent text-xs text-muted"
+                        >
+                          ▾
+                        </button>
+                        <button
+                          onClick={() => removeField(f.id)}
+                          className="border-none bg-transparent text-base font-bold text-muted hover:text-red-500"
+                        >
+                          ×
+                        </button>
+                      </div>
+
+                      {f.field_type === "select" && (
+                        <div className="flex flex-col gap-2 pl-[26px]">
+                          {(f.options ?? []).map((opt, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-start gap-1 rounded-[10px] border border-line bg-white py-1 pl-2.5 pr-1"
+                            >
+                              <textarea
+                                value={opt}
+                                rows={1}
+                                onChange={(e) =>
+                                  updateField(f.id, {
+                                    options: (f.options ?? []).map((o, i) =>
+                                      i === idx ? e.target.value : o,
+                                    ),
+                                  })
+                                }
+                                placeholder={t("editor.option_placeholder", lang)}
+                                className="min-h-[30px] w-full resize-y border-none bg-transparent py-1 text-[13px] font-semibold leading-snug text-ink outline-none"
+                              />
+                              <button
+                                onClick={() =>
+                                  updateField(f.id, {
+                                    options: (f.options ?? []).filter((_, i) => i !== idx),
+                                  })
+                                }
+                                className="px-1.5 py-0.5 text-sm font-bold text-muted"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
                           <button
                             onClick={() =>
-                              updateField(f.id, {
-                                options: (f.options ?? []).filter((_, i) => i !== idx),
-                              })
+                              updateField(f.id, { options: [...(f.options ?? []), ""] })
                             }
-                            className="px-1.5 py-0.5 text-sm font-bold text-muted"
+                            className="self-start rounded-[10px] bg-sand px-3 py-2 text-xs font-extrabold text-ink"
                           >
-                            ×
+                            {t("editor.add_option", lang)}
                           </button>
                         </div>
-                      ))}
-                      <button
-                        onClick={() =>
-                          updateField(f.id, { options: [...(f.options ?? []), ""] })
-                        }
-                        className="rounded-[10px] bg-sand px-3 py-2 text-xs font-extrabold text-ink"
-                      >
-                        {t("editor.add_option", lang)}
-                      </button>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
+                  );
+                })}
+              </div>
+              <button
+                onClick={addField}
+                className="mt-2.5 rounded-[14px] bg-sand px-4 py-2.5 text-[13px] font-extrabold text-ink"
+              >
+                {t("editor.add_field", lang)}
+              </button>
             </div>
-            <button
-              onClick={addField}
-              className="mt-2.5 rounded-[14px] bg-sand px-4 py-2.5 text-[13px] font-extrabold text-ink"
-            >
-              {t("editor.add_field", lang)}
-            </button>
           </div>
 
-          <div>
-            <div className="mb-1.5 text-[11.5px] font-extrabold uppercase tracking-[.4px] text-muted">
-              {t("editor.template", lang)}
+          {/* Right column: template + preview, sticky on wide screens */}
+          <div className="flex flex-col gap-[18px] self-start rounded-3xl border border-line bg-white p-6 shadow-[0_18px_40px_-22px_rgba(60,40,20,.35)] xl:sticky xl:top-4">
+            <div>
+              <div className="mb-1.5 text-[11.5px] font-extrabold uppercase tracking-[.4px] text-muted">
+                {t("editor.template", lang)}
+              </div>
+              <textarea
+                ref={templateRef}
+                value={template}
+                onChange={(e) => setTemplate(e.target.value)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={onTemplateDrop}
+                className="min-h-[260px] w-full resize-y rounded-[14px] border border-dashed border-mint-line bg-card p-3.5 text-sm font-semibold leading-relaxed text-ink outline-none"
+              />
             </div>
-            <textarea
-              ref={templateRef}
-              value={template}
-              onChange={(e) => setTemplate(e.target.value)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={onTemplateDrop}
-              className="min-h-[120px] w-full resize-y rounded-[14px] border border-dashed border-mint-line bg-card p-3.5 text-sm font-semibold leading-relaxed text-ink outline-none"
-            />
-          </div>
 
-          <div className="rounded-[18px] border border-mint-line bg-mint p-3.5">
-            <div className="mb-1.5 text-[11px] font-extrabold uppercase tracking-[.4px] text-mint-ink">
-              {t("editor.preview", lang)}
+            <div className="rounded-[18px] border border-mint-line bg-mint p-3.5">
+              <div className="mb-1.5 text-[11px] font-extrabold uppercase tracking-[.4px] text-mint-ink">
+                {t("editor.preview", lang)}
+              </div>
+              <div className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-ink">
+                {preview}
+              </div>
             </div>
-            <div className="text-sm font-semibold leading-relaxed text-ink">{preview}</div>
           </div>
         </div>
       </div>

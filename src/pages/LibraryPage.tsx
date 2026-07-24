@@ -21,8 +21,8 @@ export function LibraryPage() {
   };
 
   return (
-    <div className="page-bg flex-1 overflow-y-auto px-10 py-8">
-      <div className="mx-auto max-w-[1180px]">
+    <div className="page-bg flex-1 overflow-y-auto px-8 py-7">
+      <div className="w-full">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="mb-1 text-[11.5px] font-extrabold uppercase tracking-[.6px] text-muted">
@@ -72,7 +72,7 @@ export function LibraryPage() {
                     {t("library.add_mask", lang)}
                   </button>
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                   {items.map((mask) => (
                     <button
                       key={mask.id}
@@ -98,7 +98,7 @@ export function LibraryPage() {
                     </button>
                   ))}
                   {items.length === 0 && (
-                    <div className="p-3.5 text-center text-xs font-semibold text-muted">
+                    <div className="p-3.5 text-center text-xs font-semibold text-muted md:col-span-2 xl:col-span-3 2xl:col-span-4">
                       {t("library.empty_area", lang)}
                     </div>
                   )}

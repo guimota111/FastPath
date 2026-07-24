@@ -57,8 +57,8 @@ export function SettingsPage() {
   ];
 
   return (
-    <div className="page-bg flex-1 overflow-y-auto px-10 py-8">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-5">
+    <div className="page-bg flex-1 overflow-y-auto px-8 py-7">
+      <div className="flex w-full flex-col gap-5">
         <div>
           <div className="mb-1 text-[11.5px] font-extrabold uppercase tracking-[.6px] text-muted">
             {t("settings.title", lang)}
@@ -71,6 +71,7 @@ export function SettingsPage() {
           </div>
         </div>
 
+        <div className="grid items-start gap-5 xl:grid-cols-2">
         <Card>
           <div className="flex items-center justify-between">
             <span className="font-display text-[17px] font-semibold text-ink">
@@ -213,6 +214,7 @@ export function SettingsPage() {
             </button>
           </div>
         </Card>
+        </div>
       </div>
     </div>
   );

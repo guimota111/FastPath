@@ -12,12 +12,27 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "FastPath",
         "width": 1100,
         "height": 720,
         "minWidth": 800,
         "minHeight": 600,
-        "alwaysOnTop": true
+        "maximized": true,
+        "dragDropEnabled": false
+      },
+      {
+        "label": "panel",
+        "title": "FastPath — Painel",
+        "width": 404,
+        "height": 660,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {

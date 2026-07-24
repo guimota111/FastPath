@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { PanelPage } from "./pages/PanelPage";
+import { useEffect, useState } from "react";
+import { FloatingPanel } from "./components/FloatingPanel";
 import { LibraryPage } from "./pages/LibraryPage";
 import { MarketplacePage } from "./pages/MarketplacePage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -10,15 +10,44 @@ import { useOsIntegration } from "./hooks/useOsIntegration";
 import { t } from "./lib/i18n";
 import { isTrialActive, trialDaysLeft } from "./lib/constants";
 
-type Route = "panel" | "library" | "marketplace" | "settings";
+type Route = "library" | "marketplace" | "settings";
 
-export default function App() {
-  const [route, setRoute] = useState<Route>("panel");
+const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/**
+ * Whether this webview is the dedicated floating-panel window.
+ * In Tauri the window label decides; in the browser (dev) `?panel=1` lets the
+ * panel be previewed at http://localhost:1420/?panel=1.
+ */
+function isPanelWindow(): boolean {
+  if (IS_TAURI) {
+    const label = (window as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } })
+      .__TAURI_INTERNALS__?.metadata?.currentWindow?.label;
+    return label === "panel";
+  }
+  return new URLSearchParams(window.location.search).has("panel");
+}
+
+/** Standalone floating-panel window: no auth gate, no chrome, transparent bg. */
+function PanelWindow() {
+  useEffect(() => {
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
+  }, []);
+
+  return (
+    <div className="flex h-screen items-start justify-center bg-transparent p-2">
+      <FloatingPanel standalone />
+    </div>
+  );
+}
+
+function MainApp() {
+  const [route, setRoute] = useState<Route>("library");
   const lang = useMaskStore((s) => s.settings.language);
   const { user, loading, error, signIn, signUp, signInWithGoogle, signOut } = useAuth();
 
-  const openPanel = useCallback(() => setRoute("panel"), []);
-  useOsIntegration(openPanel);
+  useOsIntegration();
 
   if (loading) {
     return (
@@ -40,7 +69,6 @@ export default function App() {
   }
 
   const navItems: { key: Route; label: string }[] = [
-    { key: "panel", label: t("nav.panel", lang) },
     { key: "library", label: t("nav.library", lang) },
     { key: "marketplace", label: t("marketplace.title", lang) },
     { key: "settings", label: t("settings.title", lang) },
@@ -86,7 +114,6 @@ export default function App() {
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col">
-        {route === "panel" && <PanelPage />}
         {route === "library" && <LibraryPage />}
         {route === "marketplace" && (
           <div className="page-bg flex-1 overflow-y-auto px-10 py-8">
@@ -97,4 +124,8 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+export default function App() {
+  return isPanelWindow() ? <PanelWindow /> : <MainApp />;
 }

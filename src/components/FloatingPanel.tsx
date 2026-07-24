@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import type { ExecutionMethod, Mask, VariableBlock } from "@/lib/types";
 import {
@@ -9,6 +9,19 @@ import {
 import { deliverContent } from "@/lib/tauri";
 import { useMaskStore } from "@/hooks/useMaskStore";
 import { t } from "@/lib/i18n";
+
+const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** Hide this (panel) window so focus returns to the previously active app. */
+async function hidePanelWindow() {
+  if (!IS_TAURI) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().hide();
+  } catch (e) {
+    console.error("hide panel failed:", e);
+  }
+}
 
 function fieldLabel(f: VariableBlock): string {
   return f.variable_name.replace(/_/g, " ");
@@ -24,7 +37,12 @@ function buildPreview(mask: Mask, values: Record<string, string>): string {
   return interpolateMask(mask.blocks, merged);
 }
 
-export function FloatingPanel() {
+interface Props {
+  /** True when rendered inside the dedicated always-on-top panel window. */
+  standalone?: boolean;
+}
+
+export function FloatingPanel({ standalone = false }: Props) {
   const masks = useMaskStore((s) => s.masks);
   const areas = useMaskStore((s) => s.areas);
   const settings = useMaskStore((s) => s.settings);
@@ -80,6 +98,31 @@ export function FloatingPanel() {
     setKeyboardIndex(0);
   };
 
+  const closePanel = () => {
+    backToMenu();
+    if (standalone) void hidePanelWindow();
+  };
+
+  // Refocus the search box whenever the panel window regains focus (hotkey).
+  useEffect(() => {
+    if (!standalone) return;
+    const onFocus = () => searchRef.current?.focus();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [standalone]);
+
+  // Escape anywhere: leave the form, or hide the panel window from the menu.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (selected) backToMenu();
+      else if (!search) closePanel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, search, standalone]);
+
   const onSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -89,7 +132,7 @@ export function FloatingPanel() {
       setKeyboardIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       if (flat[keyboardIndex]) openMask(flat[keyboardIndex]);
-    } else if (e.key === "Escape") {
+    } else if (e.key === "Escape" && search) {
       setSearch("");
     }
   };
@@ -97,7 +140,15 @@ export function FloatingPanel() {
   const execute = async (method: ExecutionMethod) => {
     if (!selected) return;
     const content = interpolateMask(selected.blocks, values);
+
+    // For paste/type the target app must be focused: hide the panel first so
+    // the OS returns focus to the previously active window, then deliver.
+    if (standalone && method !== "clipboard") {
+      await hidePanelWindow();
+      await new Promise((r) => setTimeout(r, 400));
+    }
     await deliverContent(content, method, settings.keyByKeyDelay);
+
     addHistory({
       id: uuid(),
       mask_id: selected.id,
@@ -106,6 +157,7 @@ export function FloatingPanel() {
       timestamp: new Date().toISOString(),
       execution_method: method,
     });
+    if (standalone && method === "clipboard") await hidePanelWindow();
     backToMenu();
   };
 
@@ -122,11 +174,14 @@ export function FloatingPanel() {
       className="w-[380px] overflow-hidden rounded-3xl border border-line bg-white shadow-[0_18px_40px_-22px_rgba(60,40,20,.35)]"
       style={{ animation: "floatIn .3s ease-out" }}
     >
-      <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[14px] bg-sand">
+      <div
+        data-tauri-drag-region
+        className="flex cursor-move items-center gap-2.5 border-b border-line px-5 py-4"
+      >
+        <div className="pointer-events-none flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[14px] bg-sand">
           <span className="font-display text-sm font-bold text-brand">F</span>
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="pointer-events-none min-w-0 flex-1">
           <div className="truncate font-display text-[17px] font-bold text-ink">
             {selected ? selected.name : t("app.name", lang)}
           </div>
@@ -138,6 +193,15 @@ export function FloatingPanel() {
           className="h-2 w-2 flex-shrink-0 rounded-full bg-brand"
           title={t("settings.always_on_top", lang)}
         />
+        {standalone && (
+          <button
+            onClick={closePanel}
+            title={t("panel.close", lang)}
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[10px] bg-sand text-sm font-bold text-muted hover:text-red-500"
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {!selected ? (

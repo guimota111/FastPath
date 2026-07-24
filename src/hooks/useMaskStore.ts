@@ -85,3 +85,14 @@ export const useMaskStore = create<MaskState>()(
     },
   ),
 );
+
+// The main window and the floating-panel window are separate webviews sharing
+// the same localStorage. Rehydrate when the OTHER window writes the store so
+// masks/settings edited in one window show up in the other.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === "fastpath-store") {
+      void useMaskStore.persist.rehydrate();
+    }
+  });
+}

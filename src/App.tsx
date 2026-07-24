@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { FloatingPanel } from "./components/FloatingPanel";
 import { LibraryPage } from "./pages/LibraryPage";
 import { MarketplacePage } from "./pages/MarketplacePage";
@@ -7,12 +8,11 @@ import { AuthPage } from "./pages/AuthPage";
 import { useMaskStore } from "./hooks/useMaskStore";
 import { useAuth } from "./hooks/useAuth";
 import { useOsIntegration } from "./hooks/useOsIntegration";
+import { IS_TAURI, openPanel } from "./lib/panelWindow";
 import { t } from "./lib/i18n";
 import { isTrialActive, trialDaysLeft } from "./lib/constants";
 
 type Route = "library" | "marketplace" | "settings";
-
-const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /**
  * Whether this webview is the dedicated floating-panel window.
@@ -20,11 +20,7 @@ const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in windo
  * panel be previewed at http://localhost:1420/?panel=1.
  */
 function isPanelWindow(): boolean {
-  if (IS_TAURI) {
-    const label = (window as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } })
-      .__TAURI_INTERNALS__?.metadata?.currentWindow?.label;
-    return label === "panel";
-  }
+  if (IS_TAURI) return getCurrentWindow().label === "panel";
   return new URLSearchParams(window.location.search).has("panel");
 }
 
@@ -45,6 +41,7 @@ function PanelWindow() {
 function MainApp() {
   const [route, setRoute] = useState<Route>("library");
   const lang = useMaskStore((s) => s.settings.language);
+  const hotkeyOpenMenu = useMaskStore((s) => s.settings.hotkeyOpenMenu);
   const { user, loading, error, signIn, signUp, signInWithGoogle, signOut } = useAuth();
 
   useOsIntegration();
@@ -86,6 +83,13 @@ function MainApp() {
         <span className="font-display text-[15px] font-bold text-ink">
           {t("app.name", lang)}
         </span>
+        <button
+          onClick={() => void openPanel().catch((e) => console.error(e))}
+          title={hotkeyOpenMenu}
+          className="rounded-full bg-brand px-4 py-[9px] text-[13px] font-extrabold text-white shadow-[0_10px_18px_-8px_rgba(40,199,111,.70)]"
+        >
+          {t("nav.open_panel", lang)}
+        </button>
         <div className="ml-auto flex gap-0.5 rounded-full bg-sand p-1">
           {navItems.map((item) => (
             <button

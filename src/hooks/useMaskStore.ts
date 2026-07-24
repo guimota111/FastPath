@@ -72,14 +72,20 @@ export const useMaskStore = create<MaskState>()(
     }),
     {
       name: "fastpath-store",
-      version: 1,
+      version: 2,
       migrate: (persisted) => {
         const state = persisted as Partial<MaskState>;
+        const settings = { ...DEFAULT_SETTINGS, ...state.settings };
+        // v2: the scaffold-era default hotkey (F1) predates the panel window;
+        // if it was persisted untouched, move to the current default.
+        if (settings.hotkeyOpenMenu === "CommandOrControl+Shift+F1") {
+          settings.hotkeyOpenMenu = DEFAULT_SETTINGS.hotkeyOpenMenu;
+        }
         return {
           ...state,
           areas: state.areas?.length ? state.areas : [...DEFAULT_AREAS],
           masks: (state.masks ?? []).map((m) => ({ ...m, area: m.area || "Geral" })),
-          settings: { ...DEFAULT_SETTINGS, ...state.settings },
+          settings,
         } as MaskState;
       },
     },

@@ -4,24 +4,14 @@
 
 import { useEffect } from "react";
 import { useMaskStore } from "./useMaskStore";
+import { IS_TAURI, setPanelAlwaysOnTop, togglePanel } from "@/lib/panelWindow";
 
-const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-async function getPanelWindow() {
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  return WebviewWindow.getByLabel("panel");
-}
-
-/** Show the panel if hidden, hide it if visible. */
-async function togglePanel() {
-  const panel = await getPanelWindow();
-  if (!panel) return;
-  if (await panel.isVisible()) {
-    await panel.hide();
-  } else {
-    await panel.show();
-    await panel.setFocus();
-  }
+// Register/unregister calls are async; StrictMode remounts and hotkey changes
+// interleave them nondeterministically. Serializing through a queue guarantees
+// the LAST enqueued operation decides the final state.
+let hotkeyQueue: Promise<unknown> = Promise.resolve();
+function enqueueHotkeyOp(op: () => Promise<unknown>) {
+  hotkeyQueue = hotkeyQueue.then(op, op);
 }
 
 export function useOsIntegration() {
@@ -31,19 +21,14 @@ export function useOsIntegration() {
 
   // "Sempre visível" applies to the floating panel window, not the main app.
   useEffect(() => {
-    if (!isTauri()) return;
-    (async () => {
-      try {
-        const panel = await getPanelWindow();
-        await panel?.setAlwaysOnTop(alwaysOnTop);
-      } catch (e) {
-        console.error("setAlwaysOnTop failed:", e);
-      }
-    })();
+    if (!IS_TAURI) return;
+    setPanelAlwaysOnTop(alwaysOnTop).catch((e) =>
+      console.error("setAlwaysOnTop failed:", e),
+    );
   }, [alwaysOnTop]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!IS_TAURI) return;
     (async () => {
       try {
         const { enable, disable, isEnabled } = await import("@tauri-apps/plugin-autostart");
@@ -57,32 +42,29 @@ export function useOsIntegration() {
   }, [startWithOS]);
 
   useEffect(() => {
-    if (!isTauri() || !hotkeyOpenMenu.trim()) return;
-    let registered = false;
+    if (!IS_TAURI || !hotkeyOpenMenu.trim()) return;
     const shortcut = hotkeyOpenMenu;
 
-    (async () => {
+    enqueueHotkeyOp(async () => {
       try {
-        const { register } = await import("@tauri-apps/plugin-global-shortcut");
-        await register(shortcut, async (event) => {
+        const { register, unregister } = await import("@tauri-apps/plugin-global-shortcut");
+        // Clear any stale registration (StrictMode remount, hot reload) so
+        // register() below never fails with "already registered".
+        await unregister(shortcut).catch(() => {});
+        await register(shortcut, (event) => {
           if (event.state !== "Pressed") return;
-          try {
-            await togglePanel();
-          } catch (e) {
-            console.error("toggle panel failed:", e);
-          }
+          togglePanel().catch((e) => console.error("toggle panel failed:", e));
         });
-        registered = true;
       } catch (e) {
         console.error(`register hotkey "${shortcut}" failed:`, e);
       }
-    })();
+    });
 
     return () => {
-      if (!registered) return;
-      import("@tauri-apps/plugin-global-shortcut")
-        .then(({ unregister }) => unregister(shortcut))
-        .catch(() => {});
+      enqueueHotkeyOp(async () => {
+        const { unregister } = await import("@tauri-apps/plugin-global-shortcut");
+        await unregister(shortcut).catch(() => {});
+      });
     };
   }, [hotkeyOpenMenu]);
 }

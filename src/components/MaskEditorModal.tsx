@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import type { Mask, VariableBlock } from "@/lib/types";
+import type { FieldType } from "@/lib/types";
 import {
   blocksToTemplate,
   collectFieldDefs,
+  initialFieldValue,
   interpolateMask,
+  measureDims,
   normalizeMaskVariableName,
   templateToBlocks,
 } from "@/lib/maskExecutor";
@@ -132,12 +135,34 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
     setTemplate((tpl) => tpl.slice(0, start) + text + tpl.slice(end));
   };
 
+  /** Switch a field's kind, seeding whatever that kind needs to work. */
+  const setFieldType = (f: VariableBlock, type: FieldType) => {
+    const patch: Partial<VariableBlock> = { field_type: type };
+    if (type === "select" && !f.options?.length) patch.options = [""];
+    if (type === "checkbox" && !f.checked_text) {
+      patch.checked_text = f.variable_name.replace(/_/g, " ");
+    }
+    if (type === "measure" && !f.measure_dims) patch.measure_dims = 3;
+    updateField(f.id, patch);
+  };
+
   const preview = useMemo(() => {
     const values: Record<string, string> = {};
     for (const f of fields) {
       const key = normalizeMaskVariableName(f.variable_name);
-      const first = f.field_type === "select" ? f.options?.[0] : undefined;
-      values[key] = first || `[${f.variable_name.replace(/_/g, " ").toLowerCase()}]`;
+      const initial = initialFieldValue(f);
+      if (initial) {
+        values[key] = initial;
+      } else if (f.field_type === "measure") {
+        // Show the shape of the measurement rather than an empty gap.
+        const dims = measureDims(f);
+        const boxes = Array.from({ length: dims }, (_, i) => `${i + 1},0`).join(" x ");
+        values[key] = f.unit?.trim() ? `${boxes} ${f.unit.trim()}` : boxes;
+      } else if (f.field_type === "checkbox") {
+        values[key] = f.checked_text ?? "";
+      } else {
+        values[key] = `[${f.variable_name.replace(/_/g, " ").toLowerCase()}]`;
+      }
     }
     return interpolateMask(templateToBlocks(template, fields), values);
   }, [template, fields]);
@@ -242,7 +267,11 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                         <span className="flex-shrink-0 rounded-full bg-sand px-2.5 py-1 text-[11px] font-extrabold text-muted">
                           {f.field_type === "select"
                             ? `${t("editor.type_select", lang)} · ${f.options?.length ?? 0}`
-                            : t("editor.type_text", lang)}
+                            : f.field_type === "checkbox"
+                              ? t("editor.type_checkbox", lang)
+                              : f.field_type === "measure"
+                                ? `${t("editor.type_measure", lang)} · ${measureDims(f)}`
+                                : t("editor.type_text", lang)}
                         </span>
                         <button
                           onClick={(e) => {
@@ -277,31 +306,27 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                           placeholder={t("editor.field_name", lang)}
                           className="min-w-0 flex-1 rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-bold text-ink outline-none"
                         />
-                        <button
-                          onClick={() => updateField(f.id, { field_type: "text" })}
-                          className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
-                            f.field_type !== "select"
-                              ? "bg-brand text-white"
-                              : "border border-line bg-white text-muted"
-                          }`}
-                        >
-                          {t("editor.type_text", lang)}
-                        </button>
-                        <button
-                          onClick={() =>
-                            updateField(f.id, {
-                              field_type: "select",
-                              options: f.options?.length ? f.options : [""],
-                            })
-                          }
-                          className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
-                            f.field_type === "select"
-                              ? "bg-brand text-white"
-                              : "border border-line bg-white text-muted"
-                          }`}
-                        >
-                          {t("editor.type_select", lang)}
-                        </button>
+                        {(
+                          [
+                            ["text", t("editor.type_text", lang)],
+                            ["select", t("editor.type_select", lang)],
+                            ["checkbox", t("editor.type_checkbox", lang)],
+                            ["measure", t("editor.type_measure", lang)],
+                          ] as [FieldType, string][]
+                        ).map(([type, label]) => (
+                          <button
+                            key={type}
+                            onClick={() => setFieldType(f, type)}
+                            className={`rounded-[10px] px-3 py-2 text-xs font-extrabold ${
+                              (f.field_type === type ||
+                                (type === "text" && f.field_type === "textarea"))
+                                ? "bg-brand text-white"
+                                : "border border-line bg-white text-muted"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
                         <button
                           onClick={() => insertToken(f)}
                           className="rounded-[10px] bg-mint px-3 py-2 text-xs font-extrabold text-mint-ink"
@@ -322,6 +347,75 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                           ×
                         </button>
                       </div>
+
+                      {f.field_type === "checkbox" && (
+                        <div className="flex flex-col gap-2 pl-[26px]">
+                          <div className="text-[11px] font-bold text-muted">
+                            {t("editor.checked_text", lang)}
+                          </div>
+                          <textarea
+                            value={f.checked_text ?? ""}
+                            rows={1}
+                            onChange={(e) =>
+                              updateField(f.id, { checked_text: e.target.value })
+                            }
+                            className="min-h-[34px] w-full resize-y rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold leading-snug text-ink outline-none"
+                          />
+                          <button
+                            onClick={() =>
+                              updateField(f.id, { default_checked: !f.default_checked })
+                            }
+                            className="flex items-center gap-2 self-start text-left"
+                          >
+                            <span
+                              className={`flex h-[20px] w-[20px] items-center justify-center rounded-[6px] text-[12px] font-bold ${
+                                f.default_checked
+                                  ? "bg-brand text-white"
+                                  : "border border-line bg-white text-transparent"
+                              }`}
+                            >
+                              ✓
+                            </span>
+                            <span className="text-xs font-bold text-muted">
+                              {t("editor.default_checked", lang)}
+                            </span>
+                          </button>
+                        </div>
+                      )}
+
+                      {f.field_type === "measure" && (
+                        <div className="flex flex-wrap items-center gap-4 pl-[26px]">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-muted">
+                              {t("editor.measure_dims", lang)}
+                            </span>
+                            {[1, 2, 3].map((n) => (
+                              <button
+                                key={n}
+                                onClick={() => updateField(f.id, { measure_dims: n })}
+                                className={`h-8 w-8 rounded-[10px] text-xs font-extrabold ${
+                                  measureDims(f) === n
+                                    ? "bg-brand text-white"
+                                    : "border border-line bg-white text-muted"
+                                }`}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-muted">
+                              {t("editor.measure_unit", lang)}
+                            </span>
+                            <input
+                              value={f.unit ?? ""}
+                              onChange={(e) => updateField(f.id, { unit: e.target.value })}
+                              placeholder="cm"
+                              className="w-[80px] rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold text-ink outline-none"
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       {f.field_type === "select" && (
                         <div className="flex flex-col gap-2 pl-[26px]">

@@ -3,8 +3,13 @@ import { v4 as uuid } from "uuid";
 import type { ExecutionMethod, Mask, VariableBlock } from "@/lib/types";
 import {
   collectFieldDefs,
+  composeMeasure,
+  fieldExpectsInput,
+  initialFieldValue,
   interpolateMask,
+  measureDims,
   normalizeMaskVariableName,
+  splitMeasure,
 } from "@/lib/maskExecutor";
 import { deliverContent } from "@/lib/tauri";
 import { useMaskStore } from "@/hooks/useMaskStore";
@@ -38,9 +43,7 @@ function buildPreview(mask: Mask, values: Record<string, string>): string {
     const key = normalizeMaskVariableName(f.variable_name);
     const value = values[key] ?? "";
     merged[key] =
-      f.field_type === "select" || value
-        ? value
-        : `[${fieldLabel(f).toLowerCase()}]`;
+      !value && fieldExpectsInput(f) ? `[${fieldLabel(f).toLowerCase()}]` : value;
   }
   return interpolateMask(mask.blocks, merged);
 }
@@ -62,6 +65,7 @@ export function FloatingPanel({ standalone = false }: Props) {
   const [voiceListening, setVoiceListening] = useState(false);
   const [selected, setSelected] = useState<Mask | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [measureParts, setMeasureParts] = useState<Record<string, string[]>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
   const flat = useMemo(() => {
@@ -92,12 +96,29 @@ export function FloatingPanel({ standalone = false }: Props) {
 
   const openMask = (mask: Mask) => {
     const initial: Record<string, string> = {};
+    const parts: Record<string, string[]> = {};
     for (const f of collectFieldDefs(mask.blocks)) {
       const key = normalizeMaskVariableName(f.variable_name);
-      initial[key] = f.field_type === "select" ? (f.options?.[0] ?? "") : "";
+      initial[key] = initialFieldValue(f);
+      if (f.field_type === "measure") parts[key] = splitMeasure(initial[key], f);
     }
     setSelected(mask);
     setValues(initial);
+    setMeasureParts(parts);
+  };
+
+  /**
+   * Update one box of a `measure` field. The boxes are tracked separately from
+   * the joined value because joining discards which box was left empty.
+   */
+  const setMeasurePart = (f: VariableBlock, index: number, part: string) => {
+    const key = normalizeMaskVariableName(f.variable_name);
+    const parts: string[] = [
+      ...(measureParts[key] ?? Array(measureDims(f)).fill("")),
+    ];
+    parts[index] = part;
+    setMeasureParts((prev) => ({ ...prev, [key]: parts }));
+    setValues((v) => ({ ...v, [key]: composeMeasure(parts, f.unit) }));
   };
 
   const backToMenu = () => {
@@ -299,11 +320,41 @@ export function FloatingPanel({ standalone = false }: Props) {
           <div className="flex max-h-[320px] flex-col gap-3.5 overflow-y-auto">
             {fields.map((f) => {
               const key = normalizeMaskVariableName(f.variable_name);
+
+              // Checkboxes carry their own label on the switch row.
+              if (f.field_type === "checkbox") {
+                const checked = (values[key] ?? "") !== "";
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() =>
+                      setValues((v) => ({
+                        ...v,
+                        [key]: checked ? "" : (f.checked_text ?? ""),
+                      }))
+                    }
+                    className="flex items-center gap-2.5 text-left"
+                  >
+                    <span
+                      className={`flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-[7px] text-[13px] font-bold ${
+                        checked ? "bg-brand text-white" : "border border-line bg-card text-transparent"
+                      }`}
+                    >
+                      ✓
+                    </span>
+                    <span className="text-[13px] font-bold leading-snug text-ink">
+                      {fieldLabel(f)}
+                    </span>
+                  </button>
+                );
+              }
+
               return (
                 <div key={f.id}>
                   <div className="mb-1.5 text-xs font-extrabold uppercase tracking-[.4px] text-muted">
                     {fieldLabel(f)}
                   </div>
+
                   {f.field_type === "select" ? (
                     (() => {
                       const options = f.options ?? [];
@@ -336,6 +387,27 @@ export function FloatingPanel({ standalone = false }: Props) {
                         </div>
                       );
                     })()
+                  ) : f.field_type === "measure" ? (
+                    <div className="flex items-center gap-2">
+                      {Array.from({ length: measureDims(f) }, (_, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          {i > 0 && (
+                            <span className="text-sm font-bold text-muted">×</span>
+                          )}
+                          <input
+                            inputMode="decimal"
+                            value={measureParts[key]?.[i] ?? ""}
+                            onChange={(e) => setMeasurePart(f, i, e.target.value)}
+                            className="w-[68px] rounded-[12px] border border-line bg-card px-2.5 py-2 text-center text-sm font-semibold text-ink outline-none"
+                          />
+                        </div>
+                      ))}
+                      {f.unit?.trim() && (
+                        <span className="text-[13px] font-bold text-muted">
+                          {f.unit.trim()}
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     <input
                       value={values[key] ?? ""}

@@ -9,7 +9,13 @@ interface SeedDef {
   name: string;
   area: string;
   category: string;
-  fields: Array<Pick<VariableBlock, "variable_name" | "field_type"> & { options?: string[] }>;
+  fields: Array<
+    Pick<VariableBlock, "variable_name" | "field_type"> & {
+      options?: string[];
+      measure_dims?: number;
+      unit?: string;
+    }
+  >;
   template: string;
 }
 
@@ -56,7 +62,7 @@ const SEEDS: SeedDef[] = [
     category: "Biópsia",
     fields: [
       { variable_name: "Sítio_anatômico", field_type: "text" },
-      { variable_name: "Tamanho_do_fragmento", field_type: "text" },
+      { variable_name: "Tamanho_do_fragmento", field_type: "measure", measure_dims: 3, unit: "cm" },
       {
         variable_name: "Diagnóstico",
         field_type: "select",
@@ -73,7 +79,7 @@ const SEEDS: SeedDef[] = [
     category: "Biópsia",
     fields: [
       { variable_name: "Sítio_anatômico", field_type: "text" },
-      { variable_name: "Tamanho_do_fragmento", field_type: "text" },
+      { variable_name: "Tamanho_do_fragmento", field_type: "measure", measure_dims: 3, unit: "cm" },
       { variable_name: "Coloração", field_type: "text" },
       {
         variable_name: "Diagnóstico",
@@ -110,7 +116,7 @@ const SEEDS: SeedDef[] = [
     category: "Peça cirúrgica",
     fields: [
       { variable_name: "Sítio_anatômico", field_type: "text" },
-      { variable_name: "Tamanho_da_peça", field_type: "text" },
+      { variable_name: "Tamanho_da_peça", field_type: "measure", measure_dims: 3, unit: "cm" },
       { variable_name: "Margens_cirúrgicas", field_type: "select", options: ["Livres", "Comprometidas"] },
       { variable_name: "Diagnóstico", field_type: "text" },
     ],
@@ -166,6 +172,8 @@ function buildExampleMasks(now: string): Mask[] {
       variable_name: f.variable_name,
       field_type: f.field_type,
       options: f.options,
+      measure_dims: f.measure_dims,
+      unit: f.unit,
       required: false,
     }));
     return {

@@ -148,6 +148,61 @@ export function canCreateMask(plan: Plan, currentCount: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Field kinds that carry structure beyond a plain string.
+
+/** How many boxes a `measure` field shows (clamped to 1-3, default 3). */
+export function measureDims(field: VariableBlock): number {
+  return Math.min(3, Math.max(1, field.measure_dims ?? 3));
+}
+
+/**
+ * Join measurement boxes into "a x b x c unit". Empty boxes are skipped, so a
+ * 3-box field can still express a 2-dimension measurement and an all-empty
+ * field yields "" (inserting nothing).
+ */
+export function composeMeasure(parts: string[], unit?: string): string {
+  const filled = parts.map((p) => p.trim()).filter((p) => p !== "");
+  if (filled.length === 0) return "";
+  const joined = filled.join(" x ");
+  const suffix = unit?.trim();
+  return suffix ? `${joined} ${suffix}` : joined;
+}
+
+/** Split a stored measurement value back into boxes for editing. */
+export function splitMeasure(value: string, field: VariableBlock): string[] {
+  const dims = measureDims(field);
+  const unit = field.unit?.trim();
+  let rest = value.trim();
+  if (unit && rest.endsWith(unit)) rest = rest.slice(0, -unit.length).trim();
+  const parts = rest ? rest.split(/\s*x\s*/i) : [];
+  return Array.from({ length: dims }, (_, i) => parts[i] ?? "");
+}
+
+/**
+ * The value a field holds when a mask is first opened. Select fields land on
+ * their first option and ticked checkboxes on their text; everything else
+ * starts empty, which renders as nothing.
+ */
+export function initialFieldValue(field: VariableBlock): string {
+  switch (field.field_type) {
+    case "select":
+      return field.options?.[0] ?? "";
+    case "checkbox":
+      return field.default_checked ? (field.checked_text ?? "") : "";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Whether an empty value means "the user still has to fill this in" (text
+ * fields) rather than "insert nothing" (select, checkbox, measure).
+ */
+export function fieldExpectsInput(field: VariableBlock): boolean {
+  return field.field_type === "text" || field.field_type === "textarea";
+}
+
+// ---------------------------------------------------------------------------
 // Template <-> blocks conversion.
 // The mask editor works on a "template" string with {{variable}} placeholders
 // plus a list of field definitions; storage/execution uses the block tree.

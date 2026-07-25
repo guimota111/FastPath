@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { buildGastroMasks } from "./seedMasksGastro";
-import { collectFieldDefs, interpolateMask, normalizeMaskVariableName } from "./maskExecutor";
+import {
+  collectFieldDefs,
+  initialFieldValue,
+  interpolateMask,
+  normalizeMaskVariableName,
+} from "./maskExecutor";
 
 const masks = buildGastroMasks("2026-07-24T00:00:00.000Z");
 
-/** Values the floating panel preselects: first option for selects, "" for text. */
+/** The values the floating panel starts a mask with. */
 function defaultValues(maskId: string): Record<string, string> {
   const mask = masks.find((m) => m.id === maskId)!;
   const values: Record<string, string> = {};
   for (const f of collectFieldDefs(mask.blocks)) {
-    values[normalizeMaskVariableName(f.variable_name)] =
-      f.field_type === "select" ? (f.options?.[0] ?? "") : "";
+    values[normalizeMaskVariableName(f.variable_name)] = initialFieldValue(f);
   }
   return values;
 }
@@ -81,12 +85,38 @@ describe("gastro seed masks", () => {
     );
   });
 
-  it("drops the Giemsa suffix when the empty option is chosen", () => {
+  it("drops the Giemsa suffix when its checkbox is unticked", () => {
     const out = render("gastro-gastrite-inativa", { Giemsa: "" });
     expect(out).toContain(". A pesquisa de Helicobacter pylori resultou negativa.");
   });
 
-  it("omits optional lines whose option is empty", () => {
+  it("uses real checkboxes for the AHK checkbox fields", () => {
+    const colecistite = masks.find((m) => m.id === "gastro-vesicula-colecistite")!;
+    const byName = new Map(
+      collectFieldDefs(colecistite.blocks).map((f) => [f.variable_name, f]),
+    );
+
+    const calculosa = byName.get("Calculosa")!;
+    expect(calculosa.field_type).toBe("checkbox");
+    expect(calculosa.checked_text).toBe(" calculosa");
+    expect(calculosa.default_checked).toBe(true);
+
+    const colesterolose = byName.get("Colesterolose")!;
+    expect(colesterolose.field_type).toBe("checkbox");
+    expect(colesterolose.default_checked).toBeFalsy();
+
+    // Every checkbox must carry the text it inserts, or ticking does nothing.
+    for (const mask of masks) {
+      for (const f of collectFieldDefs(mask.blocks)) {
+        if (f.field_type !== "checkbox") continue;
+        expect(f.checked_text, `${mask.name}/${f.variable_name}`).toBeTruthy();
+        // A default must never be set: it would resurrect the unticked text.
+        expect(f.default, `${mask.name}/${f.variable_name}`).toBeUndefined();
+      }
+    }
+  });
+
+  it("omits optional lines whose checkbox is unticked", () => {
     const withNone = render("gastro-vesicula-colecistite");
     expect(withNone).toBe(
       "Vesícula biliar:\n" +
@@ -97,7 +127,7 @@ describe("gastro seed masks", () => {
     const withAll = render("gastro-vesicula-colecistite", {
       Colesterolose: "\n. Colesterolose.",
       Metaplasia: "\n. Presença de focos de metaplasia intestinal e pseudopilórica.",
-      Seios_de_Rokitanski_Aschoff: "\n. Seios de Rokitanski-Aschoff dilatados.",
+      Seios_de_Rokitanski_Aschoff_dilatados: "\n. Seios de Rokitanski-Aschoff dilatados.",
       Adenomiomatose: "\n. Presença de adenomiomatose.",
       Linfonodo_peri_cístico: "\n- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
     });
@@ -111,6 +141,14 @@ describe("gastro seed masks", () => {
         ". Presença de adenomiomatose.\n" +
         "- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
     );
+  });
+
+  it("ticks the checkboxes the AHK version had checked by default", () => {
+    // Colite reativa shipped with both the header hint and the note enabled.
+    expect(render("gastro-colite-reativa")).toContain("- Mucosa colônica reativa (ver nota).");
+    expect(render("gastro-colite-reativa")).toContain("\n\nNota: alterações reativas");
+    // Gastrite erosiva's note was unchecked.
+    expect(render("gastro-gastrite-erosiva")).not.toContain("Nota:");
   });
 
   it("keeps the co-varying esofagite grades consistent in a single field", () => {

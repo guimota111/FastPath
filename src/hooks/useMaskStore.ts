@@ -73,7 +73,7 @@ export const useMaskStore = create<MaskState>()(
     }),
     {
       name: "fastpath-store",
-      version: 3,
+      version: 4,
       migrate: (persisted) => {
         const state = persisted as Partial<MaskState>;
         const settings = { ...DEFAULT_SETTINGS, ...state.settings };
@@ -85,9 +85,17 @@ export const useMaskStore = create<MaskState>()(
 
         // v3: add the Gastro masks ported from GuilisAHK. Only masks whose id
         // is not present yet are added, so local edits are never overwritten.
-        const masks = (state.masks ?? []).map((m) => ({ ...m, area: m.area || "Geral" }));
+        // v4: reseed the Gastro masks that are still untouched, so the ones
+        // whose fake-checkbox selects became real checkbox fields get replaced.
+        const gastroSeeds = buildGastroMasks();
+        const seedById = new Map(gastroSeeds.map((m) => [m.id, m]));
+        const masks = (state.masks ?? []).map((m) => {
+          const seed = seedById.get(m.id);
+          if (seed && !m.updated_at) return seed; // never edited locally
+          return { ...m, area: m.area || "Geral" };
+        });
         const existingIds = new Set(masks.map((m) => m.id));
-        for (const gastro of buildGastroMasks()) {
+        for (const gastro of gastroSeeds) {
           if (!existingIds.has(gastro.id)) masks.push(gastro);
         }
 

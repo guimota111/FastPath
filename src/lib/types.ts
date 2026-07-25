@@ -5,7 +5,14 @@ export type Language = "pt-BR" | "en";
 
 export type Plan = "trial" | "basic" | "creator";
 
-export type FieldType = "text" | "textarea" | "select" | "checkbox";
+/**
+ * Kinds of input a mask can ask for:
+ * - `text` / `textarea`: free text typed by the user
+ * - `select`: one of a fixed list of values
+ * - `checkbox`: inserts `checked_text` when ticked, nothing when not
+ * - `measure`: 1-3 numeric boxes joined by " x ", with an optional unit
+ */
+export type FieldType = "text" | "textarea" | "select" | "checkbox" | "measure";
 
 export type ConditionOperator = "equals" | "contains";
 
@@ -24,9 +31,22 @@ export interface VariableBlock {
   /** Spaces are normalized to "_" (see normalizeMaskVariableName). */
   variable_name: string;
   field_type: FieldType;
+  /**
+   * Fallback used when the field is left empty. Only meaningful for text
+   * fields: `checkbox`, `measure` and `select` treat an empty value as
+   * "insert nothing", so setting a default here would defeat that.
+   */
   default?: string;
   /** Options for `select` fields. */
   options?: string[];
+  /** `checkbox`: text inserted when ticked. Unticked inserts nothing. */
+  checked_text?: string;
+  /** `checkbox`: whether it starts ticked when the mask is opened. */
+  default_checked?: boolean;
+  /** `measure`: how many boxes to show (1-3), joined by " x ". */
+  measure_dims?: number;
+  /** `measure`: unit appended after the last box, e.g. "cm". */
+  unit?: string;
   required: boolean;
 }
 

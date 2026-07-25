@@ -4,11 +4,11 @@
 // - AHK sends rich text (Send "^b" / "^i" toggles bold/italic). FastPath
 //   delivers plain text, so formatting is dropped; line structure is kept
 //   ("- " for the diagnosis header, ". " for body lines).
-// - AHK checkboxes become select fields whose "off" option is an empty
-//   string: an empty value renders as nothing, so the line disappears. The
-//   option text therefore carries its own leading "\n" where it is a line.
+// - AHK checkboxes become FastPath `checkbox` fields: ticking inserts
+//   `checked_text`, unticking inserts nothing. Where the checkbox stands for a
+//   whole line, `checked_text` carries its own leading "\n".
 // - AHK dropdowns that were only read when a checkbox was ticked are merged
-//   into a single select (e.g. "Agregado_linfoide").
+//   into a single select with an empty first option (e.g. "Agregado_linfoide").
 // - The first option of a select is the value the panel preselects, matching
 //   the AHK `ChooseN` default.
 
@@ -17,7 +17,23 @@ import { templateToBlocks } from "./maskExecutor";
 
 type SeedField = Pick<VariableBlock, "variable_name" | "field_type"> & {
   options?: string[];
+  checked_text?: string;
+  default_checked?: boolean;
+  measure_dims?: number;
+  unit?: string;
 };
+
+/** An AHK checkbox: inserts `text` when ticked, nothing otherwise. */
+const check = (
+  variable_name: string,
+  text: string,
+  default_checked = false,
+): SeedField => ({
+  variable_name,
+  field_type: "checkbox",
+  checked_text: text,
+  default_checked,
+});
 
 interface GastroSeed {
   id: string;
@@ -53,7 +69,9 @@ const MUCOSA = [
   "corpo, antro, incisura e transição corpo-antro",
 ];
 
-const GIEMSA = [" (Giemsa)", ""];
+/** AHK had this as a checkbox, ticked by default, next to the H. pylori result. */
+const giemsaField = () => check("Giemsa", " (Giemsa)", true);
+
 const ATROFIA = ["ausente", "leve", "moderada", "acentuada"];
 const HP_GRADUADA = [
   "negativa",
@@ -88,7 +106,7 @@ const MI_TEMPLATE =
 const HP_LINHA = "A pesquisa de Helicobacter pylori{{Giemsa}} resultou {{H_pylori}}.";
 
 const hpFields = (hpOptions: string[] = HP_GRADUADA): SeedField[] => [
-  { variable_name: "Giemsa", field_type: "select", options: GIEMSA },
+  giemsaField(),
   { variable_name: "H_pylori", field_type: "select", options: hpOptions },
 ];
 
@@ -134,21 +152,18 @@ const SEEDS: GastroSeed[] = [
     category: "Esôfago",
     fields: [
       { variable_name: "Contagem_de_eosinófilos_por_campo", field_type: "text" },
-      {
-        variable_name: "Nota",
-        field_type: "select",
-        options: [
-          "\n\nNota: Os achados morfológicos são compatíveis com esofagite eosinofílica. Recomenda-se correlação com demais dados clínicos e endoscópicos.",
-          "",
-        ],
-      },
+      check(
+        "Incluir_nota",
+        "\n\nNota: Os achados morfológicos são compatíveis com esofagite eosinofílica. Recomenda-se correlação com demais dados clínicos e endoscópicos.",
+        true,
+      ),
     ],
     template:
       "- Esofagite crônica rica em eosinófilos.\n" +
       ". Epitélio escamoso apresentando infiltrado eosinofílico elevado, exibindo degranulação, sem formação de coleções.\n" +
       ". A pesquisa de parasitas resultou negativa.\n" +
       ". Contagem de eosinófilos em campo de maior aumento, em cada amostra: {{Contagem_de_eosinófilos_por_campo}}.\n" +
-      ". Ausência de sinais de malignidade nesta amostra.{{Nota}}",
+      ". Ausência de sinais de malignidade nesta amostra.{{Incluir_nota}}",
   },
   {
     id: "gastro-esofago-acantose",
@@ -340,14 +355,10 @@ const SEEDS: GastroSeed[] = [
         ", com displasia de alto grau",
       ]),
       ...hpFields(),
-      {
-        variable_name: "Nota",
-        field_type: "select",
-        options: [
-          "",
-          "\n\nNota: Mucosa com intensas alterações epiteliais de aspectos reativo e regenerativo. Recomenda-se, a critério clínico, nova amostragem após tratamento.",
-        ],
-      },
+      check(
+        "Nota_sobre_alterações_epiteliais_intensas",
+        "\n\nNota: Mucosa com intensas alterações epiteliais de aspectos reativo e regenerativo. Recomenda-se, a critério clínico, nova amostragem após tratamento.",
+      ),
     ],
     template:
       "- Gastrite erosiva {{Intensidade}} em atividade.\n" +
@@ -356,7 +367,7 @@ const SEEDS: GastroSeed[] = [
       ". Atrofia: {{Atrofia}}.\n" +
       `. Metaplasia intestinal: ${MI_TEMPLATE}.\n` +
       `. ${HP_LINHA}\n` +
-      ". Ausência de evidências de malignidade nesta amostra.{{Nota}}",
+      ". Ausência de evidências de malignidade nesta amostra.{{Nota_sobre_alterações_epiteliais_intensas}}",
   },
   {
     id: "gastro-gastropatia-reativa",
@@ -375,14 +386,11 @@ const SEEDS: GastroSeed[] = [
           "A pesquisa de Helicobacter pylori (Giemsa) não foi realizada.",
         ],
       },
-      {
-        variable_name: "Nota",
-        field_type: "select",
-        options: [
-          "\nNota: os achados morfológicos são sugestivos de lesão química. Recomenda-se correlação com demais dados clínicos.",
-          "",
-        ],
-      },
+      check(
+        "Nota_sugestivo_de_lesão_química",
+        "\nNota: os achados morfológicos são sugestivos de lesão química. Recomenda-se correlação com demais dados clínicos.",
+        true,
+      ),
     ],
     template:
       "- Gastropatia reativa.\n" +
@@ -390,7 +398,7 @@ const SEEDS: GastroSeed[] = [
       ". Atrofia: {{Atrofia}}.\n" +
       ". Metaplasia intestinal: {{Metaplasia_intestinal}}.\n" +
       ". {{H_pylori_Giemsa}}\n" +
-      ". Ausência de evidências de malignidade nesta amostra.{{Nota}}",
+      ". Ausência de evidências de malignidade nesta amostra.{{Nota_sugestivo_de_lesão_química}}",
   },
   {
     id: "gastro-alteracoes-reativas-discretas",
@@ -435,7 +443,7 @@ const SEEDS: GastroSeed[] = [
       },
       { variable_name: "Atrofia", field_type: "select", options: ATROFIA },
       ...miFields(),
-      { variable_name: "Giemsa", field_type: "select", options: GIEMSA },
+      giemsaField(),
       {
         variable_name: "H_pylori",
         field_type: "select",
@@ -584,48 +592,38 @@ const SEEDS: GastroSeed[] = [
     name: "Colite erosiva",
     category: "Cólon",
     fields: [
-      {
-        variable_name: "Agressão_às_criptas",
-        field_type: "select",
-        options: ["focalmente ", ""],
-      },
-      {
-        variable_name: "Nota",
-        field_type: "select",
-        options: [
-          "\n\nNota: estes achados podem ser vistos em colites infecciosas, reação a medicamentos, em doença inflamatória intestinal, entre outros diagnósticos diferenciais. Necessária correlação com dados clínicos e endoscópicos.",
-          "",
-        ],
-      },
+      check("Agressão_focal_às_criptas", "focalmente ", true),
+      check(
+        "Incluir_nota",
+        "\n\nNota: estes achados podem ser vistos em colites infecciosas, reação a medicamentos, em doença inflamatória intestinal, entre outros diagnósticos diferenciais. Necessária correlação com dados clínicos e endoscópicos.",
+        true,
+      ),
     ],
     template:
       "- Colite erosiva com alterações regenerativas.\n" +
       ". Mucosa colônica com focos de erosão reparada.\n" +
       ". O epitélio de revestimento exibe alterações regenerativas e reativas.\n" +
-      ". Na lâmina própria observam-se infiltrado inflamatório linfoplasmocitário e neutrófilos agredindo {{Agressão_às_criptas}}as criptas.\n" +
-      ". Não foram detectados granulomas, parasitos, sinais de cronicidade ou malignidade nesta amostra.{{Nota}}",
+      ". Na lâmina própria observam-se infiltrado inflamatório linfoplasmocitário e neutrófilos agredindo {{Agressão_focal_às_criptas}}as criptas.\n" +
+      ". Não foram detectados granulomas, parasitos, sinais de cronicidade ou malignidade nesta amostra.{{Incluir_nota}}",
   },
   {
     id: "gastro-colite-reativa",
     name: "Colite reativa",
     category: "Cólon",
     fields: [
-      { variable_name: "Ver_nota_no_título", field_type: "select", options: [" (ver nota)", ""] },
-      {
-        variable_name: "Nota",
-        field_type: "select",
-        options: [
-          "\n\nNota: alterações reativas inespecíficas podem ser vistas após resolução de processo inflamatório autolimitado. Necessária correlação com dados clínicos e colonoscópicos.",
-          "",
-        ],
-      },
+      check("Ver_nota_no_título", " (ver nota)", true),
+      check(
+        "Incluir_nota",
+        "\n\nNota: alterações reativas inespecíficas podem ser vistas após resolução de processo inflamatório autolimitado. Necessária correlação com dados clínicos e colonoscópicos.",
+        true,
+      ),
     ],
     template:
       "- Mucosa colônica reativa{{Ver_nota_no_título}}.\n" +
       ". Mucosa com arquitetura de criptas preservada, regeneração epitelial e folículo linfoide.\n" +
       ". Ausência de criptite.\n" +
       ". Não foram detectados granulomas, parasitas, espessamento colágeno subepitelial e/ou linfocitose intraepitelial.\n" +
-      ". Não foram observados sinais de malignidade nesta amostra.{{Nota}}",
+      ". Não foram observados sinais de malignidade nesta amostra.{{Incluir_nota}}",
   },
   {
     id: "gastro-colon-polipo-hiperplasico",
@@ -645,16 +643,10 @@ const SEEDS: GastroSeed[] = [
     name: "Colecistite crônica",
     category: "Vesícula biliar",
     fields: [
-      {
-        variable_name: "Calculosa",
-        field_type: "select",
-        options: [" calculosa", ""],
-      },
-      {
-        variable_name: "Colesterolose",
-        field_type: "select",
-        options: ["", "\n. Colesterolose."],
-      },
+      check("Calculosa", " calculosa", true),
+      check("Colesterolose", "\n. Colesterolose."),
+      // AHK combined two checkboxes into one sentence; a select keeps the
+      // "intestinal e pseudopilórica" wording correct.
       {
         variable_name: "Metaplasia",
         field_type: "select",
@@ -665,34 +657,24 @@ const SEEDS: GastroSeed[] = [
           "\n. Presença de focos de metaplasia intestinal e pseudopilórica.",
         ],
       },
-      {
-        variable_name: "Seios_de_Rokitanski_Aschoff",
-        field_type: "select",
-        options: ["", "\n. Seios de Rokitanski-Aschoff dilatados."],
-      },
-      {
-        variable_name: "Adenomiomatose",
-        field_type: "select",
-        options: ["", "\n. Presença de adenomiomatose."],
-      },
-      {
-        variable_name: "Linfonodo_peri_cístico",
-        field_type: "select",
-        options: ["", "\n- Linfonodo peri-cístico com hiperplasia linfoide reacional."],
-      },
-      {
-        variable_name: "Tecido_hepático_aderido",
-        field_type: "select",
-        options: [
-          "",
-          "\n- Rima de tecido hepático aderido com artefatos pré-analíticos de fulguração, discreto infiltrado inflamatório linfocitário periportal e esteatose discreta.",
-        ],
-      },
+      check(
+        "Seios_de_Rokitanski_Aschoff_dilatados",
+        "\n. Seios de Rokitanski-Aschoff dilatados.",
+      ),
+      check("Adenomiomatose", "\n. Presença de adenomiomatose."),
+      check(
+        "Linfonodo_peri_cístico",
+        "\n- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
+      ),
+      check(
+        "Tecido_hepático_aderido",
+        "\n- Rima de tecido hepático aderido com artefatos pré-analíticos de fulguração, discreto infiltrado inflamatório linfocitário periportal e esteatose discreta.",
+      ),
     ],
     template:
       "Vesícula biliar:\n" +
       "- Colecistite crônica{{Calculosa}}." +
-      "{{Colesterolose}}{{Metaplasia}}{{Seios_de_Rokitanski_Aschoff}}\n" +
+      "{{Colesterolose}}{{Metaplasia}}{{Seios_de_Rokitanski_Aschoff_dilatados}}\n" +
       ". Ausência de sinais de malignidade." +
       "{{Adenomiomatose}}{{Linfonodo_peri_cístico}}{{Tecido_hepático_aderido}}",
   },
@@ -701,18 +683,17 @@ const SEEDS: GastroSeed[] = [
     name: "Colecistite crônica agudizada",
     category: "Vesícula biliar",
     fields: [
-      {
-        variable_name: "Seios_de_Rokitanski_Aschoff",
-        field_type: "select",
-        options: ["", "\n. Seios de Rokitanski-Aschoff dilatados."],
-      },
+      check(
+        "Seios_de_Rokitanski_Aschoff_dilatados",
+        "\n. Seios de Rokitanski-Aschoff dilatados.",
+      ),
     ],
     template:
       "Vesícula Biliar:\n" +
       "- Colecistite crônica agudizada.\n" +
       ". Mucosa revestida por epitélio colunar simples com alterações reativas, focos de exulceração, área de necrose e infiltrado neutrofílico.\n" +
       ". Lâmina própria e parede muscular com fibrose, focos de hemorragia e infiltrado inflamatório linfo-histioplasmocitário." +
-      "{{Seios_de_Rokitanski_Aschoff}}\n" +
+      "{{Seios_de_Rokitanski_Aschoff_dilatados}}\n" +
       ". Ausência de neoplasia.\n" +
       "- Colelitíase.",
   },
@@ -728,26 +709,25 @@ const SEEDS: GastroSeed[] = [
         field_type: "select",
         options: ["úlcero-flegmonosa", "incipiente", "necrossupurativa", "ulcerada"],
       },
-      {
-        variable_name: "Hiperplasia_linfoide",
-        field_type: "select",
-        options: ["", "\n- Hiperplasia linfoide folicular reacional."],
-      },
-      {
-        variable_name: "Obliteração_fibrosa",
-        field_type: "select",
-        options: ["", "\n- Obliteração fibrosa da ponta do apêndice."],
-      },
-      {
-        variable_name: "Periapendicite",
-        field_type: "select",
-        options: ["", "\n- Periapendicite aguda fibrinoleucocitária."],
-      },
+      check(
+        "Hiperplasia_linfoide_folicular_reacional",
+        "\n- Hiperplasia linfoide folicular reacional.",
+      ),
+      check(
+        "Obliteração_fibrosa_da_ponta",
+        "\n- Obliteração fibrosa da ponta do apêndice.",
+      ),
+      check(
+        "Periapendicite_aguda_fibrinoleucocitária",
+        "\n- Periapendicite aguda fibrinoleucocitária.",
+      ),
     ],
     template:
       "Apêndice cecal:\n" +
       "- Apendicite aguda {{Tipo}}." +
-      "{{Hiperplasia_linfoide}}{{Obliteração_fibrosa}}{{Periapendicite}}\n" +
+      "{{Hiperplasia_linfoide_folicular_reacional}}" +
+      "{{Obliteração_fibrosa_da_ponta}}" +
+      "{{Periapendicite_aguda_fibrinoleucocitária}}\n" +
       "- Não se observam elementos de malignidade nesta amostra.",
   },
 
@@ -793,6 +773,10 @@ export function buildGastroMasks(now = new Date().toISOString()): Mask[] {
       variable_name: f.variable_name,
       field_type: f.field_type,
       options: f.options,
+      checked_text: f.checked_text,
+      default_checked: f.default_checked,
+      measure_dims: f.measure_dims,
+      unit: f.unit,
       required: false,
     }));
     // Deterministic block ids keep seeded masks byte-identical across builds.

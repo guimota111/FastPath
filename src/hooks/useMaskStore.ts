@@ -5,6 +5,7 @@ import { persist } from "zustand/middleware";
 import type { HistoryEntry, Mask, UserSettings } from "@/lib/types";
 import { DEFAULT_AREAS, DEFAULT_SETTINGS } from "@/lib/constants";
 import { buildSeedMasks } from "@/lib/seedMasks";
+import { GASTRO_AREA, buildGastroMasks } from "@/lib/seedMasksGastro";
 
 interface MaskState {
   masks: Mask[];
@@ -72,7 +73,7 @@ export const useMaskStore = create<MaskState>()(
     }),
     {
       name: "fastpath-store",
-      version: 2,
+      version: 3,
       migrate: (persisted) => {
         const state = persisted as Partial<MaskState>;
         const settings = { ...DEFAULT_SETTINGS, ...state.settings };
@@ -81,12 +82,19 @@ export const useMaskStore = create<MaskState>()(
         if (settings.hotkeyOpenMenu === "CommandOrControl+Shift+F1") {
           settings.hotkeyOpenMenu = DEFAULT_SETTINGS.hotkeyOpenMenu;
         }
-        return {
-          ...state,
-          areas: state.areas?.length ? state.areas : [...DEFAULT_AREAS],
-          masks: (state.masks ?? []).map((m) => ({ ...m, area: m.area || "Geral" })),
-          settings,
-        } as MaskState;
+
+        // v3: add the Gastro masks ported from GuilisAHK. Only masks whose id
+        // is not present yet are added, so local edits are never overwritten.
+        const masks = (state.masks ?? []).map((m) => ({ ...m, area: m.area || "Geral" }));
+        const existingIds = new Set(masks.map((m) => m.id));
+        for (const gastro of buildGastroMasks()) {
+          if (!existingIds.has(gastro.id)) masks.push(gastro);
+        }
+
+        const areas = state.areas?.length ? [...state.areas] : [...DEFAULT_AREAS];
+        if (!areas.includes(GASTRO_AREA)) areas.push(GASTRO_AREA);
+
+        return { ...state, areas, masks, settings } as MaskState;
       },
     },
   ),

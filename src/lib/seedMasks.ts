@@ -2,6 +2,7 @@
 
 import type { Mask, VariableBlock } from "./types";
 import { templateToBlocks } from "./maskExecutor";
+import { buildGastroMasks } from "./seedMasksGastro";
 
 interface SeedDef {
   id: string;
@@ -153,6 +154,11 @@ const SEEDS: SeedDef[] = [
 ];
 
 export function buildSeedMasks(now = new Date().toISOString()): Mask[] {
+  return [...buildExampleMasks(now), ...buildGastroMasks(now)];
+}
+
+/** One generic example per default area, to show the structure. */
+function buildExampleMasks(now: string): Mask[] {
   return SEEDS.map((seed) => {
     const fields: VariableBlock[] = seed.fields.map((f, i) => ({
       id: `${seed.id}-f${i}`,

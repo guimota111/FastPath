@@ -27,12 +27,20 @@ function fieldLabel(f: VariableBlock): string {
   return f.variable_name.replace(/_/g, " ");
 }
 
-/** Interpolate with `[label]` placeholders for still-empty fields. */
+/**
+ * Interpolate with `[label]` placeholders for text fields the user hasn't
+ * filled yet. Select fields always hold a chosen value — an empty one means
+ * "omit this part", so it must render as nothing.
+ */
 function buildPreview(mask: Mask, values: Record<string, string>): string {
   const merged: Record<string, string> = {};
   for (const f of collectFieldDefs(mask.blocks)) {
     const key = normalizeMaskVariableName(f.variable_name);
-    merged[key] = values[key] || `[${fieldLabel(f).toLowerCase()}]`;
+    const value = values[key] ?? "";
+    merged[key] =
+      f.field_type === "select" || value
+        ? value
+        : `[${fieldLabel(f).toLowerCase()}]`;
   }
   return interpolateMask(mask.blocks, merged);
 }
@@ -297,21 +305,37 @@ export function FloatingPanel({ standalone = false }: Props) {
                     {fieldLabel(f)}
                   </div>
                   {f.field_type === "select" ? (
-                    <div className="flex flex-wrap gap-2">
-                      {(f.options ?? []).map((opt) => (
-                        <button
-                          key={opt}
-                          onClick={() => setValues((v) => ({ ...v, [key]: opt }))}
-                          className={`rounded-full px-3.5 py-2 text-[13px] font-bold ${
-                            values[key] === opt
-                              ? "bg-brand text-white shadow-[0_10px_18px_-8px_rgba(40,199,111,.70)]"
-                              : "bg-sand text-ink"
-                          }`}
+                    (() => {
+                      const options = f.options ?? [];
+                      // Paragraph-long options need full-width stacked rows;
+                      // short ones read better as inline chips.
+                      const stacked = options.some((o) => o.length > 48);
+                      return (
+                        <div
+                          className={
+                            stacked ? "flex flex-col gap-1.5" : "flex flex-wrap gap-2"
+                          }
                         >
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
+                          {options.map((opt, i) => (
+                            <button
+                              key={`${i}-${opt}`}
+                              onClick={() => setValues((v) => ({ ...v, [key]: opt }))}
+                              className={`text-[13px] font-bold ${
+                                stacked
+                                  ? "w-full whitespace-pre-wrap rounded-[12px] px-3 py-2 text-left leading-snug"
+                                  : "rounded-full px-3.5 py-2"
+                              } ${
+                                values[key] === opt
+                                  ? "bg-brand text-white shadow-[0_10px_18px_-8px_rgba(40,199,111,.70)]"
+                                  : "bg-sand text-ink"
+                              }`}
+                            >
+                              {opt.trim() || t("panel.option_none", lang)}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()
                   ) : (
                     <input
                       value={values[key] ?? ""}
@@ -329,7 +353,7 @@ export function FloatingPanel({ standalone = false }: Props) {
             <div className="mb-1.5 text-[11px] font-extrabold uppercase tracking-[.4px] text-muted">
               {t("panel.preview", lang)}
             </div>
-            <div className="text-sm font-semibold leading-relaxed text-ink">
+            <div className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-ink">
               {buildPreview(selected, values)}
             </div>
           </div>

@@ -8,7 +8,12 @@
 // DOM never grows structure the serialiser cannot represent.
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { PLACEHOLDER_PATTERN, normalizeMaskVariableName } from "@/lib/maskExecutor";
+import {
+  BOLD_MARKER,
+  ITALIC_MARKER,
+  placeholderPattern,
+  normalizeMaskVariableName,
+} from "@/lib/maskExecutor";
 
 export interface TemplateEditorHandle {
   /** Insert `{{name}}` at the caret (or at the end if not focused). */
@@ -68,59 +73,173 @@ function chipHtml(name: string, known: boolean): string {
   );
 }
 
-/** Render the stored template string into chips + text. */
+/**
+ * Render the stored template string into chips + text, with the bold/italic
+ * markers turned into real `<strong>`/`<em>` so the author sees the formatting
+ * instead of the markup.
+ */
 export function toHtml(template: string, knownNames: Set<string>): string {
-  let html = "";
-  let last = 0;
-  for (const match of template.matchAll(PLACEHOLDER_PATTERN)) {
-    const at = match.index ?? 0;
-    if (at > last) html += escapeHtml(template.slice(last, at));
-    const name = normalizeMaskVariableName(match[1]);
-    html += chipHtml(name, knownNames.has(name));
-    last = at + match[0].length;
+  // Collect the pieces first so tags can be opened and closed only where the
+  // formatting actually changes, leaving no empty elements for the caret to
+  // get stuck in.
+  const placeholder = placeholderPattern();
+  const pieces: { html: string; bold: boolean; italic: boolean }[] = [];
+  let bold = false;
+  let italic = false;
+  let i = 0;
+
+  const push = (html: string) => {
+    if (html === "") return;
+    const last = pieces[pieces.length - 1];
+    if (last && last.bold === bold && last.italic === italic) {
+      last.html += html;
+      return;
+    }
+    pieces.push({ html, bold, italic });
+  };
+
+  while (i < template.length) {
+    if (template.startsWith(BOLD_MARKER, i)) {
+      bold = !bold;
+      i += BOLD_MARKER.length;
+      continue;
+    }
+    if (template.startsWith(ITALIC_MARKER, i)) {
+      italic = !italic;
+      i += ITALIC_MARKER.length;
+      continue;
+    }
+
+    placeholder.lastIndex = i;
+    const match = placeholder.exec(template);
+    if (match && match.index === i) {
+      const name = normalizeMaskVariableName(match[1]);
+      push(chipHtml(name, knownNames.has(name)));
+      i += match[0].length;
+      continue;
+    }
+
+    push(escapeHtml(template[i]));
+    i += 1;
   }
-  if (last < template.length) html += escapeHtml(template.slice(last));
+
+  // Group by bold, then by italic within each group, so a bold stretch is one
+  // element with the italic parts nested inside rather than a chain of
+  // sibling <strong>s.
+  let html = "";
+  for (let start = 0; start < pieces.length; ) {
+    const isBold = pieces[start].bold;
+    let end = start;
+    while (end < pieces.length && pieces[end].bold === isBold) end += 1;
+
+    let inner = "";
+    for (let j = start; j < end; ) {
+      const isItalic = pieces[j].italic;
+      let k = j;
+      let text = "";
+      while (k < end && pieces[k].italic === isItalic) {
+        text += pieces[k].html;
+        k += 1;
+      }
+      inner += isItalic ? `<em>${text}</em>` : text;
+      j = k;
+    }
+
+    html += isBold ? `<strong>${inner}</strong>` : inner;
+    start = end;
+  }
   return html;
 }
 
-/** Serialise the editing surface back into the stored template string. */
-export function serialize(root: HTMLElement): string {
-  let out = "";
+/** Whether an element turns bold or italic on for everything inside it. */
+function elementFormatting(el: HTMLElement): { bold: boolean; italic: boolean } {
+  const tag = el.tagName;
+  const weight = el.style.fontWeight;
+  const style = el.style.fontStyle;
+  return {
+    // execCommand may produce either tags or inline styles depending on the
+    // browser and on styleWithCSS; accept both.
+    bold: tag === "B" || tag === "STRONG" || weight === "bold" || Number(weight) >= 600,
+    italic: tag === "I" || tag === "EM" || style === "italic",
+  };
+}
 
-  const walk = (node: Node) => {
+/**
+ * Serialise the editing surface back into the stored template string, turning
+ * bold/italic elements back into markers.
+ */
+export function serialize(root: HTMLElement): string {
+  // Flatten to pieces first: emitting markers needs to see where formatting
+  // changes, which nested elements obscure.
+  const pieces: { text: string; bold: boolean; italic: boolean }[] = [];
+  let sawTrailingBr = false;
+
+  const walk = (node: Node, bold: boolean, italic: boolean) => {
     for (const child of Array.from(node.childNodes)) {
       if (child.nodeType === Node.TEXT_NODE) {
-        out += child.textContent ?? "";
+        pieces.push({ text: child.textContent ?? "", bold, italic });
+        sawTrailingBr = false;
         continue;
       }
       if (!(child instanceof HTMLElement)) continue;
 
       const varName = child.dataset.var;
       if (varName) {
-        out += `{{${varName}}}`;
+        pieces.push({ text: `{{${varName}}}`, bold, italic });
+        sawTrailingBr = false;
         continue;
       }
       if (child.tagName === "BR") {
-        out += "\n";
+        pieces.push({ text: "\n", bold, italic });
+        sawTrailingBr = child.parentNode === root && child === root.lastChild;
         continue;
       }
       // Browsers may wrap lines in block elements when editing; treat the
       // start of each one as a line break.
       if (child.tagName === "DIV" || child.tagName === "P") {
-        if (out !== "" && !out.endsWith("\n")) out += "\n";
-        walk(child);
+        const last = pieces[pieces.length - 1];
+        if (pieces.length > 0 && !last.text.endsWith("\n")) {
+          pieces.push({ text: "\n", bold, italic });
+        }
+        walk(child, bold, italic);
+        sawTrailingBr = false;
         continue;
       }
-      walk(child);
+
+      const own = elementFormatting(child);
+      walk(child, bold || own.bold, italic || own.italic);
+      sawTrailingBr = false;
     }
   };
 
-  walk(root);
+  walk(root, false, false);
   // A trailing <br> is how browsers keep the last line focusable; it is not
   // part of the text the user typed.
-  return out.endsWith("\n") && root.lastChild instanceof HTMLBRElement
-    ? out.slice(0, -1)
-    : out;
+  if (sawTrailingBr) pieces.pop();
+
+  let out = "";
+  let bold = false;
+  let italic = false;
+  for (const piece of pieces) {
+    if (piece.text === "") continue;
+    // Close italic before bold so the markers stay properly nested.
+    if (italic && piece.italic !== italic) {
+      out += ITALIC_MARKER;
+      italic = false;
+    }
+    if (piece.bold !== bold) {
+      out += BOLD_MARKER;
+      bold = piece.bold;
+    }
+    if (piece.italic !== italic) {
+      out += ITALIC_MARKER;
+      italic = piece.italic;
+    }
+    out += piece.text;
+  }
+  if (italic) out += ITALIC_MARKER;
+  if (bold) out += BOLD_MARKER;
+  return out;
 }
 
 export const TemplateEditor = forwardRef<TemplateEditorHandle, Props>(
@@ -209,6 +328,16 @@ export const TemplateEditor = forwardRef<TemplateEditorHandle, Props>(
           if (e.key === "Enter") {
             e.preventDefault();
             document.execCommand("insertText", false, "\n");
+            return;
+          }
+          const key = e.key.toLowerCase();
+          if ((e.ctrlKey || e.metaKey) && (key === "b" || key === "i")) {
+            e.preventDefault();
+            // Ask for tags rather than inline styles; serialize accepts both,
+            // but tags keep the markup the template maps onto.
+            document.execCommand("styleWithCSS", false, "false");
+            document.execCommand(key === "b" ? "bold" : "italic");
+            commit();
           }
         }}
         onPaste={(e) => {

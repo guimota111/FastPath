@@ -104,3 +104,52 @@ describe("round trip", () => {
     expect(roundTrip("")).toBe("");
   });
 });
+
+describe("formatting", () => {
+  it("shows bold and italic as real tags, not as markers", () => {
+    const html = toHtml("- **Diagnóstico.**\n. corpo", known);
+    expect(html).toContain("<strong>Diagnóstico.</strong>");
+    expect(html).not.toContain("**");
+  });
+
+  it("nests italic inside bold when both apply", () => {
+    expect(toHtml("**a __b__**", known)).toContain("<strong>a <em>b</em></strong>");
+  });
+
+  it("reads tags back as markers", () => {
+    expect(serialize(surface("- <strong>Diagnóstico.</strong>"))).toBe(
+      "- **Diagnóstico.**",
+    );
+    expect(serialize(surface("a <em>b</em> c"))).toBe("a __b__ c");
+  });
+
+  it("accepts the tags and inline styles execCommand may produce", () => {
+    expect(serialize(surface("<b>x</b>"))).toBe("**x**");
+    expect(serialize(surface("<i>x</i>"))).toBe("__x__");
+    expect(serialize(surface('<span style="font-weight: bold">x</span>'))).toBe("**x**");
+    expect(serialize(surface('<span style="font-style: italic">x</span>'))).toBe("__x__");
+  });
+
+  it("inherits formatting into a chip nested inside it", () => {
+    const html =
+      '<strong>Mucosa de <span data-var="Localização" contenteditable="false">Localização</span>.</strong>';
+    expect(serialize(surface(html))).toBe("**Mucosa de {{Localização}}.**");
+  });
+
+  it("round-trips formatted templates", () => {
+    for (const template of [
+      "- **Diagnóstico.**\n. corpo",
+      "a __b__ c",
+      "**a __b__ c**",
+      "**{{Atrofia}}**",
+      "**negrito**\n__itálico__",
+    ]) {
+      expect(roundTrip(template)).toBe(template);
+    }
+  });
+
+  it("merges neighbouring elements that carry the same formatting", () => {
+    // Browsers often split a styled run into several elements while editing.
+    expect(serialize(surface("<b>a</b><b>b</b>"))).toBe("**ab**");
+  });
+});

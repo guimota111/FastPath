@@ -18,6 +18,81 @@ pub async fn read_clipboard(app: tauri::AppHandle) -> Result<String, String> {
     app.clipboard().read_text().map_err(|e| e.to_string())
 }
 
+/// Write formatted text to the clipboard, with `plain` as the fallback for
+/// targets that cannot take HTML.
+#[tauri::command]
+pub async fn write_clipboard_html(
+    app: tauri::AppHandle,
+    html: String,
+    plain: String,
+) -> Result<(), String> {
+    app.clipboard()
+        .write_html(html, Some(plain))
+        .map_err(|e| e.to_string())
+}
+
+/// Parse an accelerator like "CommandOrControl+Shift+B" into its modifiers and
+/// final key. Unknown tokens are treated as the key so a bare "F5" works.
+fn parse_accelerator(accelerator: &str) -> Result<(Vec<enigo::Key>, enigo::Key), String> {
+    use enigo::Key;
+
+    let mut modifiers = Vec::new();
+    let mut key: Option<Key> = None;
+
+    for token in accelerator.split('+') {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        match token.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => modifiers.push(Key::Control),
+            "alt" | "option" => modifiers.push(Key::Alt),
+            "shift" => modifiers.push(Key::Shift),
+            "cmd" | "command" | "super" | "meta" => modifiers.push(Key::Meta),
+            "commandorcontrol" | "cmdorctrl" => {
+                #[cfg(target_os = "macos")]
+                modifiers.push(Key::Meta);
+                #[cfg(not(target_os = "macos"))]
+                modifiers.push(Key::Control);
+            }
+            other => {
+                let mut chars = other.chars();
+                let first = chars.next().ok_or("empty key")?;
+                if chars.next().is_some() {
+                    return Err(format!("unsupported key: {other}"));
+                }
+                key = Some(Key::Unicode(first));
+            }
+        }
+    }
+
+    key.ok_or_else(|| format!("no key in accelerator: {accelerator}"))
+        .map(|k| (modifiers, k))
+}
+
+/// Press a key combination in the focused app, e.g. the target editor's
+/// bold/italic toggle. Modifiers are released in reverse order.
+#[tauri::command]
+pub async fn send_hotkey(accelerator: String) -> Result<(), String> {
+    use enigo::{Direction, Keyboard};
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let (modifiers, key) = parse_accelerator(&accelerator)?;
+        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+
+        for m in &modifiers {
+            enigo.key(*m, Direction::Press).map_err(|e| e.to_string())?;
+        }
+        enigo.key(key, Direction::Click).map_err(|e| e.to_string())?;
+        for m in modifiers.iter().rev() {
+            enigo.key(*m, Direction::Release).map_err(|e| e.to_string())?;
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Type `text` into the focused field one character at a time.
 ///
 /// `delay_ms` is the pause between characters (lower = faster). Runs on a

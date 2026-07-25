@@ -25,6 +25,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::write_clipboard,
             commands::read_clipboard,
+            commands::write_clipboard_html,
+            commands::send_hotkey,
             commands::insert_text_keybykey,
             commands::simulate_paste,
             commands::start_oauth_server,

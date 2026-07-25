@@ -1,7 +1,9 @@
 // FastPath - Thin wrappers around Tauri backend commands.
 // In a browser (vitest / vite preview without Tauri) these degrade gracefully.
 
-import type { ExecutionMethod } from "./types";
+import type { ExecutionMethod, TextRun, UserSettings } from "./types";
+import { hasFormatting, planTyping, runsToHtml } from "./richText";
+import { runsToPlainText } from "./maskExecutor";
 
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -23,6 +25,25 @@ export async function writeClipboard(text: string): Promise<void> {
   }
 }
 
+/** Put formatted text on the clipboard, with `plain` as the fallback flavour. */
+export async function writeClipboardHtml(html: string, plain: string): Promise<void> {
+  const invoke = await getInvoke();
+  if (invoke) {
+    await invoke("write_clipboard_html", { html, plain });
+    return;
+  }
+  if (typeof ClipboardItem !== "undefined" && navigator?.clipboard?.write) {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([plain], { type: "text/plain" }),
+      }),
+    ]);
+    return;
+  }
+  await writeClipboard(plain);
+}
+
 export async function readClipboard(): Promise<string> {
   const invoke = await getInvoke();
   if (invoke) return invoke<string>("read_clipboard");
@@ -40,27 +61,61 @@ export async function insertKeyByKey(text: string, delayMs: number): Promise<voi
   await writeClipboard(text);
 }
 
+/** Press a key combination in the focused app, e.g. its bold toggle. */
+export async function sendHotkey(accelerator: string): Promise<void> {
+  const invoke = await getInvoke();
+  if (invoke) await invoke("send_hotkey", { accelerator });
+}
+
 export async function simulatePaste(): Promise<void> {
   const invoke = await getInvoke();
   if (invoke) await invoke("simulate_paste");
 }
 
 /**
- * Deliver generated content to the focused app using the chosen method.
+ * Type runs into the focused field, pressing the target editor's bold/italic
+ * toggles as the formatting changes. Without both hotkeys configured the text
+ * is typed unformatted rather than half-formatted.
+ */
+async function typeRuns(runs: TextRun[], settings: UserSettings): Promise<void> {
+  const canFormat = !!settings.hotkeyBold?.trim() && !!settings.hotkeyItalic?.trim();
+  if (!canFormat || !hasFormatting(runs)) {
+    await insertKeyByKey(runsToPlainText(runs), settings.keyByKeyDelay);
+    return;
+  }
+
+  for (const step of planTyping(runs)) {
+    if (step.kind === "toggle") {
+      await sendHotkey(step.format === "bold" ? settings.hotkeyBold : settings.hotkeyItalic);
+    } else {
+      await insertKeyByKey(step.text, settings.keyByKeyDelay);
+    }
+  }
+}
+
+/**
+ * Deliver a generated report to the focused app using the chosen method.
  * `clipboard` just copies; `paste` copies then simulates Ctrl/Cmd+V;
  * `key-by-key` types it out character by character.
+ *
+ * Bold and italic survive only where the method can carry them: a rich-text
+ * copy/paste when `richText` is on, or key-by-key with the toggles configured.
  */
 export async function deliverContent(
-  content: string,
+  runs: TextRun[],
   method: ExecutionMethod,
-  delayMs: number,
+  settings: UserSettings,
 ): Promise<void> {
   if (method === "key-by-key") {
-    await insertKeyByKey(content, delayMs);
-  } else if (method === "paste") {
-    await writeClipboard(content);
-    await simulatePaste();
-  } else {
-    await writeClipboard(content);
+    await typeRuns(runs, settings);
+    return;
   }
+
+  const plain = runsToPlainText(runs);
+  if (settings.richText && hasFormatting(runs)) {
+    await writeClipboardHtml(runsToHtml(runs), plain);
+  } else {
+    await writeClipboard(plain);
+  }
+  if (method === "paste") await simulatePaste();
 }

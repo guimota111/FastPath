@@ -42,6 +42,11 @@ export type ConditionOperator = "equals" | "contains";
  */
 export type ExecutionMethod = "clipboard" | "paste" | "key-by-key";
 
+/** A stretch of generated report text that shares one formatting state. */
+export interface TextRun extends Formatting {
+  text: string;
+}
+
 /**
  * One row of a `multicheck` field's text table: which items are ticked, and
  * what to insert for exactly that combination.
@@ -53,7 +58,7 @@ export interface MultiCombination {
 }
 
 /** A user input field that gets substituted into the generated report. */
-export interface VariableBlock {
+export interface VariableBlock extends Formatting {
   id: string;
   type: "variable";
   /** Spaces are normalized to "_" (see normalizeMaskVariableName). */
@@ -111,8 +116,18 @@ export interface ConditionalBlock {
   blocks: MaskBlock[];
 }
 
+/**
+ * Character formatting a chunk of the report carries. Only reaches the report
+ * when the output method can express it: rich-text paste, or key-by-key typing
+ * with the bold/italic hotkeys configured.
+ */
+export interface Formatting {
+  bold?: boolean;
+  italic?: boolean;
+}
+
 /** A literal chunk of text emitted verbatim into the output. */
-export interface TextBlock {
+export interface TextBlock extends Formatting {
   id: string;
   type: "text";
   content: string;
@@ -187,6 +202,17 @@ export interface UserSettings {
   hotkeyConfirm: string;
   hotkeyCancel: string;
   hotkeyVoice: string;
+  /**
+   * Copy/paste as rich text so bold and italic survive. Off by default: report
+   * systems that only take plain text would otherwise receive markup.
+   */
+  richText: boolean;
+  /**
+   * Key combinations the TARGET editor uses to toggle bold and italic. Sent
+   * while typing key-by-key; blank disables formatting for that method.
+   */
+  hotkeyBold: string;
+  hotkeyItalic: string;
   /** Max history entries kept locally before pruning. */
   historyLimit: number;
   /** Voice dictation (stub until STT engine is wired). */

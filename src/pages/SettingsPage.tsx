@@ -167,6 +167,48 @@ export function SettingsPage() {
 
         <Card>
           <span className="font-display text-[17px] font-semibold text-ink">
+            {t("settings.formatting", lang)}
+          </span>
+          <div className="text-[13px] font-semibold text-muted">
+            {t("settings.formatting_desc", lang)}
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm font-bold text-muted">
+              {t("settings.rich_text", lang)}
+              <span className="mt-0.5 block text-xs font-semibold text-muted/80">
+                {t("settings.rich_text_desc", lang)}
+              </span>
+            </span>
+            <Toggle
+              on={settings.richText}
+              onClick={() => updateSettings({ richText: !settings.richText })}
+            />
+          </div>
+
+          <div className="border-t border-line pt-4 text-xs font-semibold text-muted">
+            {t("settings.format_hotkeys_desc", lang)}
+          </div>
+          {(
+            [
+              [t("settings.hotkey_bold", lang), "hotkeyBold"],
+              [t("settings.hotkey_italic", lang), "hotkeyItalic"],
+            ] as [string, "hotkeyBold" | "hotkeyItalic"][]
+          ).map(([label, key]) => (
+            <div key={key} className="flex items-center justify-between">
+              <span className="text-sm font-bold text-muted">{label}</span>
+              <input
+                value={settings[key]}
+                onChange={(e) => updateSettings({ [key]: e.target.value })}
+                placeholder={t("settings.hotkey_none", lang)}
+                className="w-[190px] rounded-[10px] border border-line bg-card px-3 py-2 text-center text-[13px] font-extrabold text-ink outline-none"
+              />
+            </div>
+          ))}
+        </Card>
+
+        <Card>
+          <span className="font-display text-[17px] font-semibold text-ink">
             {t("settings.general", lang)}
           </span>
           <div className="flex items-center justify-between">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
-import type { ExecutionMethod, Mask, VariableBlock } from "@/lib/types";
+import type { ExecutionMethod, Mask, TextRun, VariableBlock } from "@/lib/types";
 import {
   checkboxValue,
   collectFieldDefs,
@@ -8,9 +8,10 @@ import {
   composeMultiCheck,
   fieldExpectsInput,
   initialFieldValue,
-  interpolateMask,
   measureDims,
   normalizeMaskVariableName,
+  renderRuns,
+  runsToPlainText,
   splitMeasure,
 } from "@/lib/maskExecutor";
 import { deliverContent } from "@/lib/tauri";
@@ -39,7 +40,7 @@ function fieldLabel(f: VariableBlock): string {
  * filled yet. Select fields always hold a chosen value — an empty one means
  * "omit this part", so it must render as nothing.
  */
-function buildPreview(mask: Mask, values: Record<string, string>): string {
+function buildPreview(mask: Mask, values: Record<string, string>): TextRun[] {
   const merged: Record<string, string> = {};
   for (const f of collectFieldDefs(mask.blocks)) {
     const key = normalizeMaskVariableName(f.variable_name);
@@ -47,7 +48,7 @@ function buildPreview(mask: Mask, values: Record<string, string>): string {
     merged[key] =
       !value && fieldExpectsInput(f) ? `[${fieldLabel(f).toLowerCase()}]` : value;
   }
-  return interpolateMask(mask.blocks, merged);
+  return renderRuns(mask.blocks, merged);
 }
 
 interface Props {
@@ -198,7 +199,8 @@ export function FloatingPanel({ standalone = false }: Props) {
 
   const execute = async (method: ExecutionMethod) => {
     if (!selected) return;
-    const content = interpolateMask(selected.blocks, values);
+    const runs = renderRuns(selected.blocks, values);
+    const content = runsToPlainText(runs);
 
     // For paste/type the target app must be focused: hide the panel first so
     // the OS returns focus to the previously active window, then deliver.
@@ -206,7 +208,7 @@ export function FloatingPanel({ standalone = false }: Props) {
       await hidePanelWindow();
       await new Promise((r) => setTimeout(r, 400));
     }
-    await deliverContent(content, method, settings.keyByKeyDelay);
+    await deliverContent(runs, method, settings);
 
     addHistory({
       id: uuid(),
@@ -477,7 +479,16 @@ export function FloatingPanel({ standalone = false }: Props) {
               {t("panel.preview", lang)}
             </div>
             <div className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-ink">
-              {buildPreview(selected, values)}
+              {buildPreview(selected, values).map((run, i) => (
+                <span
+                  key={i}
+                  className={`${run.bold ? "font-extrabold" : ""} ${
+                    run.italic ? "italic" : ""
+                  }`}
+                >
+                  {run.text}
+                </span>
+              ))}
             </div>
           </div>
 

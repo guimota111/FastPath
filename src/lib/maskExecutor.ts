@@ -6,6 +6,7 @@ import type {
   LineMode,
   Mask,
   MaskBlock,
+  TextRun,
   VariableBlock,
 } from "./types";
 import { BASIC_MASK_LIMIT } from "./constants";
@@ -64,38 +65,76 @@ function resolveVariableValue(
   return block.default ?? "";
 }
 
+/**
+ * Render the block tree into formatted runs. Adjacent stretches sharing the
+ * same formatting are merged, so the result is the shortest run list that still
+ * describes the report.
+ */
+export function renderRuns(
+  blocks: MaskBlock[],
+  variables: Record<string, string>,
+): TextRun[] {
+  const runs: TextRun[] = [];
+
+  const push = (text: string, bold: boolean, italic: boolean) => {
+    if (text === "") return;
+    const last = runs[runs.length - 1];
+    if (last && !!last.bold === bold && !!last.italic === italic) {
+      last.text += text;
+      return;
+    }
+    runs.push({ text, ...(bold ? { bold: true } : {}), ...(italic ? { italic: true } : {}) });
+  };
+
+  /** Drop the line break the template reserved for an empty conditional field. */
+  const dropTrailingNewline = () => {
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      if (runs[i].text === "") continue;
+      if (runs[i].text.endsWith("\n")) {
+        runs[i].text = runs[i].text.slice(0, -1);
+        if (runs[i].text === "") runs.splice(i, 1);
+      }
+      return;
+    }
+  };
+
+  const visit = (bs: MaskBlock[]) => {
+    for (const block of bs) {
+      switch (block.type) {
+        case "text":
+          push(block.content, !!block.bold, !!block.italic);
+          break;
+        case "variable": {
+          const value = resolveVariableValue(block, variables);
+          // A "conditional" field takes its line break from the template, which
+          // lets the author stack placeholders one per line. When the field is
+          // empty that break has to go too, or it leaves a blank line behind.
+          if (value === "" && block.line_mode === "conditional") dropTrailingNewline();
+          push(value, !!block.bold, !!block.italic);
+          break;
+        }
+        case "conditional":
+          if (evaluateCondition(block.condition, variables)) visit(block.blocks);
+          break;
+      }
+    }
+  };
+
+  visit(blocks);
+  return runs;
+}
+
+/** Concatenate runs, discarding their formatting. */
+export function runsToPlainText(runs: TextRun[]): string {
+  return runs.map((r) => r.text).join("");
+}
+
 /** Render the block tree into final report text using the supplied values. */
 export function interpolateMask(
   blocks: MaskBlock[],
   variables: Record<string, string>,
 ): string {
-  let result = "";
-
-  for (const block of blocks) {
-    switch (block.type) {
-      case "text":
-        result += block.content;
-        break;
-      case "variable": {
-        const value = resolveVariableValue(block, variables);
-        // A "conditional" field takes its line break from the template, which
-        // lets the author stack placeholders one per line. When the field is
-        // empty that break has to go too, or it leaves a blank line behind.
-        if (value === "" && block.line_mode === "conditional") {
-          result = result.replace(/\n$/, "");
-        }
-        result += value;
-        break;
-      }
-      case "conditional":
-        if (evaluateCondition(block.condition, variables)) {
-          result += interpolateMask(block.blocks, variables);
-        }
-        break;
-    }
-  }
-
-  return result;
+  return runsToPlainText(renderRuns(blocks, variables));
 }
 
 export interface ValidationResult {
@@ -293,14 +332,14 @@ export function fieldExpectsInput(field: VariableBlock): boolean {
 // The mask editor works on a "template" string with {{variable}} placeholders
 // plus a list of field definitions; storage/execution uses the block tree.
 
-const PLACEHOLDER_RE = /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
-
 /**
- * Matches a `{{variable}}` placeholder, capturing the name. Exposed so the
- * template editor highlights exactly what the parser will recognise.
- * Global + sticky state is per-call: always use with `matchAll`.
+ * A fresh matcher for `{{variable}}` placeholders, capturing the name. Each
+ * caller gets its own instance because scanning mutates `lastIndex`, and the
+ * template editor scans the same text concurrently with the parser.
  */
-export const PLACEHOLDER_PATTERN = PLACEHOLDER_RE;
+export function placeholderPattern(): RegExp {
+  return /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
+}
 
 /** Collect every variable block in the tree, deduped by name, in order. */
 export function collectFieldDefs(blocks: MaskBlock[]): VariableBlock[] {
@@ -330,7 +369,30 @@ export function collectFieldDefs(blocks: MaskBlock[]): VariableBlock[] {
  */
 export function blocksToTemplate(blocks: MaskBlock[]): string {
   let out = "";
+  let bold = false;
+  let italic = false;
+
+  /** Open or close the markers so they match `block`'s formatting. */
+  const syncMarkers = (block: MaskBlock) => {
+    const wantBold = block.type !== "conditional" && !!block.bold;
+    const wantItalic = block.type !== "conditional" && !!block.italic;
+    // Close italic before bold so the markers stay properly nested.
+    if (italic !== wantItalic && italic) {
+      out += ITALIC_MARKER;
+      italic = false;
+    }
+    if (bold !== wantBold) {
+      out += BOLD_MARKER;
+      bold = wantBold;
+    }
+    if (italic !== wantItalic) {
+      out += ITALIC_MARKER;
+      italic = wantItalic;
+    }
+  };
+
   for (const block of blocks) {
+    syncMarkers(block);
     switch (block.type) {
       case "text":
         out += block.content;
@@ -343,12 +405,26 @@ export function blocksToTemplate(blocks: MaskBlock[]): string {
         break;
     }
   }
+
+  if (italic) out += ITALIC_MARKER;
+  if (bold) out += BOLD_MARKER;
   return out;
 }
 
 /**
- * Parse a template string into alternating text/variable blocks. Placeholders
- * without a matching field definition get a plain text field created for them.
+ * Markers the template uses for character formatting. The editor writes them
+ * when the author presses the bold/italic shortcut, so they are not something
+ * anyone has to type — but a report that genuinely needs a literal "**" would
+ * have to avoid it.
+ */
+export const BOLD_MARKER = "**";
+export const ITALIC_MARKER = "__";
+
+/**
+ * Parse a template string into alternating text/variable blocks, tracking the
+ * bold/italic markers so every block records the formatting in force where it
+ * appears. Placeholders without a matching field definition get a plain text
+ * field created for them.
  */
 export function templateToBlocks(
   template: string,
@@ -357,25 +433,68 @@ export function templateToBlocks(
 ): MaskBlock[] {
   const byName = new Map(fields.map((f) => [normalizeMaskVariableName(f.variable_name), f]));
   const blocks: MaskBlock[] = [];
-  let lastIndex = 0;
+  const placeholder = placeholderPattern();
 
-  for (const match of template.matchAll(PLACEHOLDER_RE)) {
-    const idx = match.index ?? 0;
-    if (idx > lastIndex) {
-      blocks.push({ id: makeId(), type: "text", content: template.slice(lastIndex, idx) });
+  let bold = false;
+  let italic = false;
+  let pending = "";
+  let i = 0;
+
+  const flushText = () => {
+    if (pending === "") return;
+    blocks.push({
+      id: makeId(),
+      type: "text",
+      content: pending,
+      ...(bold ? { bold: true } : {}),
+      ...(italic ? { italic: true } : {}),
+    });
+    pending = "";
+  };
+
+  while (i < template.length) {
+    if (template.startsWith(BOLD_MARKER, i)) {
+      flushText();
+      bold = !bold;
+      i += BOLD_MARKER.length;
+      continue;
     }
-    const name = normalizeMaskVariableName(match[1]);
-    const def = byName.get(name);
-    blocks.push(
-      def
+    if (template.startsWith(ITALIC_MARKER, i)) {
+      flushText();
+      italic = !italic;
+      i += ITALIC_MARKER.length;
+      continue;
+    }
+
+    // Placeholders are matched at the current position only.
+    placeholder.lastIndex = i;
+    const match = placeholder.exec(template);
+    if (match && match.index === i) {
+      flushText();
+      const name = normalizeMaskVariableName(match[1]);
+      const def = byName.get(name);
+      const base: VariableBlock = def
         ? { ...def, id: makeId(), variable_name: name }
-        : { id: makeId(), type: "variable", variable_name: name, field_type: "text", required: false },
-    );
-    lastIndex = idx + match[0].length;
+        : {
+            id: makeId(),
+            type: "variable",
+            variable_name: name,
+            field_type: "text",
+            required: false,
+          };
+      blocks.push({
+        ...base,
+        ...(bold ? { bold: true } : { bold: undefined }),
+        ...(italic ? { italic: true } : { italic: undefined }),
+      });
+      i += match[0].length;
+      continue;
+    }
+
+    pending += template[i];
+    i += 1;
   }
-  if (lastIndex < template.length) {
-    blocks.push({ id: makeId(), type: "text", content: template.slice(lastIndex) });
-  }
+  flushText();
   return blocks;
 }
 

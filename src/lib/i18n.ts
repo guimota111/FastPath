@@ -113,6 +113,17 @@ const translations: Record<Language, Dict> = {
     "settings.output_paste_desc": "Cola o texto direto no campo do sistema de laudos",
     "settings.output_type": "Digitar no sistema",
     "settings.output_type_desc": "Simula digitação, tecla por tecla, no campo ativo",
+    "settings.formatting": "Negrito e itálico",
+    "settings.formatting_desc":
+      "Marque trechos em negrito ou itálico no modelo da máscara (Ctrl+B / Ctrl+I no editor). Como isso chega ao laudo depende do método de saída.",
+    "settings.rich_text": "Copiar/colar com formatação",
+    "settings.rich_text_desc":
+      "Envia o texto formatado. Desligue se o sistema de laudos só aceita texto simples.",
+    "settings.format_hotkeys_desc":
+      "Ao digitar tecla por tecla, o FastPath usa estes atalhos DO SEU sistema de laudos para ligar e desligar negrito/itálico. Deixe vazio para digitar sem formatação.",
+    "settings.hotkey_bold": "Atalho de negrito",
+    "settings.hotkey_italic": "Atalho de itálico",
+    "settings.hotkey_none": "Sem formatação",
     "settings.general": "Geral",
     "settings.start_with_os": "Iniciar automaticamente com o sistema",
     "settings.always_on_top": "Manter painel sempre visível",
@@ -228,6 +239,17 @@ const translations: Record<Language, Dict> = {
     "settings.output_paste_desc": "Pastes the text straight into the reporting system field",
     "settings.output_type": "Type into system",
     "settings.output_type_desc": "Simulates typing, key by key, into the focused field",
+    "settings.formatting": "Bold and italic",
+    "settings.formatting_desc":
+      "Mark stretches of the mask template bold or italic (Ctrl+B / Ctrl+I in the editor). How that reaches the report depends on the output method.",
+    "settings.rich_text": "Copy/paste with formatting",
+    "settings.rich_text_desc":
+      "Sends formatted text. Turn off if your reporting system only accepts plain text.",
+    "settings.format_hotkeys_desc":
+      "When typing key by key, FastPath presses YOUR reporting system's shortcuts to toggle bold/italic. Leave empty to type without formatting.",
+    "settings.hotkey_bold": "Bold shortcut",
+    "settings.hotkey_italic": "Italic shortcut",
+    "settings.hotkey_none": "No formatting",
     "settings.general": "General",
     "settings.start_with_os": "Start automatically with the system",
     "settings.always_on_top": "Keep panel always on top",

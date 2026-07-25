@@ -23,6 +23,9 @@ type SeedField = Pick<VariableBlock, "variable_name" | "field_type"> & {
   line_mode?: LineMode;
   measure_dims?: number;
   unit?: string;
+  prefix?: string;
+  suffix?: string;
+  last_separator?: string;
 };
 
 /**
@@ -650,44 +653,49 @@ const SEEDS: GastroSeed[] = [
     id: "gastro-vesicula-colecistite",
     name: "Colecistite crônica",
     category: "Vesícula biliar",
+    // Every optional line uses "conditional" mode, which lets the template
+    // below stack them one per line: unticked lines vanish without leaving a
+    // blank one behind.
     fields: [
       check("Calculosa", " calculosa", { checked: true }),
-      check("Colesterolose", ". Colesterolose.", { mode: "line" }),
-      // AHK combined two checkboxes into one sentence; a select keeps the
-      // "intestinal e pseudopilórica" wording correct.
+      check("Colesterolose", ". Colesterolose.", { mode: "conditional" }),
+      // AHK had two checkboxes that shared one sentence; multicheck joins the
+      // ticked ones so "intestinal e pseudopilórica" reads correctly.
       {
         variable_name: "Metaplasia",
-        field_type: "select",
-        options: [
-          "",
-          "\n. Presença de focos de metaplasia intestinal.",
-          "\n. Presença de focos de metaplasia pseudopilórica.",
-          "\n. Presença de focos de metaplasia intestinal e pseudopilórica.",
-        ],
+        field_type: "multicheck",
+        options: ["intestinal", "pseudopilórica"],
+        prefix: ". Presença de focos de metaplasia ",
+        suffix: ".",
+        line_mode: "conditional",
       },
       check(
         "Seios_de_Rokitanski_Aschoff_dilatados",
         ". Seios de Rokitanski-Aschoff dilatados.",
-        { mode: "line" },
+        { mode: "conditional" },
       ),
-      check("Adenomiomatose", ". Presença de adenomiomatose.", { mode: "line" }),
+      check("Adenomiomatose", ". Presença de adenomiomatose.", { mode: "conditional" }),
       check(
         "Linfonodo_peri_cístico",
         "- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
-        { mode: "line" },
+        { mode: "conditional" },
       ),
       check(
         "Tecido_hepático_aderido",
         "- Rima de tecido hepático aderido com artefatos pré-analíticos de fulguração, discreto infiltrado inflamatório linfocitário periportal e esteatose discreta.",
-        { mode: "line" },
+        { mode: "conditional" },
       ),
     ],
     template:
       "Vesícula biliar:\n" +
-      "- Colecistite crônica{{Calculosa}}." +
-      "{{Colesterolose}}{{Metaplasia}}{{Seios_de_Rokitanski_Aschoff_dilatados}}\n" +
-      ". Ausência de sinais de malignidade." +
-      "{{Adenomiomatose}}{{Linfonodo_peri_cístico}}{{Tecido_hepático_aderido}}",
+      "- Colecistite crônica{{Calculosa}}.\n" +
+      "{{Colesterolose}}\n" +
+      "{{Metaplasia}}\n" +
+      "{{Seios_de_Rokitanski_Aschoff_dilatados}}\n" +
+      ". Ausência de sinais de malignidade.\n" +
+      "{{Adenomiomatose}}\n" +
+      "{{Linfonodo_peri_cístico}}\n" +
+      "{{Tecido_hepático_aderido}}",
   },
   {
     id: "gastro-vesicula-agudizada",
@@ -697,14 +705,14 @@ const SEEDS: GastroSeed[] = [
       check(
         "Seios_de_Rokitanski_Aschoff_dilatados",
         ". Seios de Rokitanski-Aschoff dilatados.",
-        { mode: "line" },
+        { mode: "conditional" },
       ),
     ],
     template:
       "Vesícula Biliar:\n" +
       "- Colecistite crônica agudizada.\n" +
       ". Mucosa revestida por epitélio colunar simples com alterações reativas, focos de exulceração, área de necrose e infiltrado neutrofílico.\n" +
-      ". Lâmina própria e parede muscular com fibrose, focos de hemorragia e infiltrado inflamatório linfo-histioplasmocitário." +
+      ". Lâmina própria e parede muscular com fibrose, focos de hemorragia e infiltrado inflamatório linfo-histioplasmocitário.\n" +
       "{{Seios_de_Rokitanski_Aschoff_dilatados}}\n" +
       ". Ausência de neoplasia.\n" +
       "- Colelitíase.",
@@ -724,24 +732,24 @@ const SEEDS: GastroSeed[] = [
       check(
         "Hiperplasia_linfoide_folicular_reacional",
         "- Hiperplasia linfoide folicular reacional.",
-        { mode: "line" },
+        { mode: "conditional" },
       ),
       check(
         "Obliteração_fibrosa_da_ponta",
         "- Obliteração fibrosa da ponta do apêndice.",
-        { mode: "line" },
+        { mode: "conditional" },
       ),
       check(
         "Periapendicite_aguda_fibrinoleucocitária",
         "- Periapendicite aguda fibrinoleucocitária.",
-        { mode: "line" },
+        { mode: "conditional" },
       ),
     ],
     template:
       "Apêndice cecal:\n" +
-      "- Apendicite aguda {{Tipo}}." +
-      "{{Hiperplasia_linfoide_folicular_reacional}}" +
-      "{{Obliteração_fibrosa_da_ponta}}" +
+      "- Apendicite aguda {{Tipo}}.\n" +
+      "{{Hiperplasia_linfoide_folicular_reacional}}\n" +
+      "{{Obliteração_fibrosa_da_ponta}}\n" +
       "{{Periapendicite_aguda_fibrinoleucocitária}}\n" +
       "- Não se observam elementos de malignidade nesta amostra.",
   },
@@ -793,6 +801,9 @@ export function buildGastroMasks(now = new Date().toISOString()): Mask[] {
       line_mode: f.line_mode,
       measure_dims: f.measure_dims,
       unit: f.unit,
+      prefix: f.prefix,
+      suffix: f.suffix,
+      last_separator: f.last_separator,
       required: false,
     }));
     // Deterministic block ids keep seeded masks byte-identical across builds.

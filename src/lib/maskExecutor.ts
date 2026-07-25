@@ -76,9 +76,17 @@ export function interpolateMask(
       case "text":
         result += block.content;
         break;
-      case "variable":
-        result += resolveVariableValue(block, variables);
+      case "variable": {
+        const value = resolveVariableValue(block, variables);
+        // A "conditional" field takes its line break from the template, which
+        // lets the author stack placeholders one per line. When the field is
+        // empty that break has to go too, or it leaves a blank line behind.
+        if (value === "" && block.line_mode === "conditional") {
+          result = result.replace(/\n$/, "");
+        }
+        result += value;
         break;
+      }
       case "conditional":
         if (evaluateCondition(block.condition, variables)) {
           result += interpolateMask(block.blocks, variables);
@@ -179,11 +187,16 @@ export function splitMeasure(value: string, field: VariableBlock): string[] {
   return Array.from({ length: dims }, (_, i) => parts[i] ?? "");
 }
 
-/** Line break a checkbox's `line_mode` puts before its text. */
+/**
+ * Line break a field's `line_mode` puts before its text. "conditional" adds
+ * nothing here: its break lives in the template and `interpolateMask` removes
+ * it when the field turns out empty.
+ */
 const LINE_MODE_PREFIX: Record<LineMode, string> = {
   inline: "",
   line: "\n",
   paragraph: "\n\n",
+  conditional: "",
 };
 
 /**
@@ -192,7 +205,35 @@ const LINE_MODE_PREFIX: Record<LineMode, string> = {
  * have to type an invisible newline to get the field on its own line.
  */
 export function checkboxCheckedValue(field: VariableBlock): string {
-  return LINE_MODE_PREFIX[field.line_mode ?? "inline"] + (field.checked_text ?? "");
+  const text = field.checked_text ?? "";
+  if (text === "") return "";
+  return LINE_MODE_PREFIX[field.line_mode ?? "inline"] + text;
+}
+
+/**
+ * Compose a `multicheck` value from the ticked items: the prefix, the items
+ * joined into a readable list, then the suffix. No ticked item means no value
+ * at all, so the whole phrase disappears.
+ *
+ * Items come out in the field's own option order, not the order they were
+ * ticked, so the sentence reads the same however the user got there.
+ */
+export function composeMultiCheck(field: VariableBlock, selected: string[]): string {
+  const items = (field.options ?? []).filter((option) => selected.includes(option));
+  if (items.length === 0) return "";
+
+  const lastSeparator = field.last_separator ?? " e ";
+  const joined =
+    items.length === 1
+      ? items[0]
+      : items.slice(0, -1).join(", ") + lastSeparator + items[items.length - 1];
+
+  return (
+    LINE_MODE_PREFIX[field.line_mode ?? "inline"] +
+    (field.prefix ?? "") +
+    joined +
+    (field.suffix ?? "")
+  );
 }
 
 /**

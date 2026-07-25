@@ -6,6 +6,7 @@ import {
   blocksToTemplate,
   checkboxCheckedValue,
   collectFieldDefs,
+  composeMultiCheck,
   initialFieldValue,
   interpolateMask,
   measureDims,
@@ -119,13 +120,45 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
   /** Switch a field's kind, seeding whatever that kind needs to work. */
   const setFieldType = (f: VariableBlock, type: FieldType) => {
     const patch: Partial<VariableBlock> = { field_type: type };
-    if (type === "select" && !f.options?.length) patch.options = [""];
+    if ((type === "select" || type === "multicheck") && !f.options?.length) {
+      patch.options = [""];
+    }
     if (type === "checkbox" && !f.checked_text) {
       patch.checked_text = f.variable_name.replace(/_/g, " ");
     }
     if (type === "measure" && !f.measure_dims) patch.measure_dims = 3;
     updateField(f.id, patch);
   };
+
+  /** The line-mode picker, shared by checkbox and multicheck fields. */
+  const lineModeRow = (f: VariableBlock) => (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[11px] font-bold text-muted">
+        {t("editor.line_mode", lang)}
+      </span>
+      {(
+        [
+          ["inline", t("editor.line_mode_inline", lang)],
+          ["line", t("editor.line_mode_line", lang)],
+          ["paragraph", t("editor.line_mode_paragraph", lang)],
+          ["conditional", t("editor.line_mode_conditional", lang)],
+        ] as [LineMode, string][]
+      ).map(([mode, label]) => (
+        <button
+          key={mode}
+          onClick={() => updateField(f.id, { line_mode: mode })}
+          title={mode === "conditional" ? t("editor.line_mode_conditional_hint", lang) : undefined}
+          className={`rounded-[10px] px-3 py-1.5 text-[11px] font-extrabold ${
+            (f.line_mode ?? "inline") === mode
+              ? "bg-brand text-white"
+              : "border border-line bg-white text-muted"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 
   const preview = useMemo(() => {
     const values: Record<string, string> = {};
@@ -141,6 +174,9 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
         values[key] = f.unit?.trim() ? `${boxes} ${f.unit.trim()}` : boxes;
       } else if (f.field_type === "checkbox") {
         values[key] = checkboxCheckedValue(f);
+      } else if (f.field_type === "multicheck") {
+        // Show every item ticked so the author sees the full sentence.
+        values[key] = composeMultiCheck(f, f.options ?? []);
       } else {
         values[key] = `[${f.variable_name.replace(/_/g, " ").toLowerCase()}]`;
       }
@@ -250,9 +286,11 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                             ? `${t("editor.type_select", lang)} · ${f.options?.length ?? 0}`
                             : f.field_type === "checkbox"
                               ? t("editor.type_checkbox", lang)
-                              : f.field_type === "measure"
-                                ? `${t("editor.type_measure", lang)} · ${measureDims(f)}`
-                                : t("editor.type_text", lang)}
+                              : f.field_type === "multicheck"
+                                ? `${t("editor.type_multicheck", lang)} · ${f.options?.length ?? 0}`
+                                : f.field_type === "measure"
+                                  ? `${t("editor.type_measure", lang)} · ${measureDims(f)}`
+                                  : t("editor.type_text", lang)}
                         </span>
                         <button
                           onClick={(e) => {
@@ -292,6 +330,7 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                             ["text", t("editor.type_text", lang)],
                             ["select", t("editor.type_select", lang)],
                             ["checkbox", t("editor.type_checkbox", lang)],
+                            ["multicheck", t("editor.type_multicheck", lang)],
                             ["measure", t("editor.type_measure", lang)],
                           ] as [FieldType, string][]
                         ).map(([type, label]) => (
@@ -342,30 +381,7 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                             }
                             className="min-h-[34px] w-full resize-y rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold leading-snug text-ink outline-none"
                           />
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[11px] font-bold text-muted">
-                              {t("editor.line_mode", lang)}
-                            </span>
-                            {(
-                              [
-                                ["inline", t("editor.line_mode_inline", lang)],
-                                ["line", t("editor.line_mode_line", lang)],
-                                ["paragraph", t("editor.line_mode_paragraph", lang)],
-                              ] as [LineMode, string][]
-                            ).map(([mode, label]) => (
-                              <button
-                                key={mode}
-                                onClick={() => updateField(f.id, { line_mode: mode })}
-                                className={`rounded-[10px] px-3 py-1.5 text-[11px] font-extrabold ${
-                                  (f.line_mode ?? "inline") === mode
-                                    ? "bg-brand text-white"
-                                    : "border border-line bg-white text-muted"
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
+                          {lineModeRow(f)}
                           <button
                             onClick={() =>
                               updateField(f.id, { default_checked: !f.default_checked })
@@ -385,6 +401,88 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                               {t("editor.default_checked", lang)}
                             </span>
                           </button>
+                        </div>
+                      )}
+
+                      {f.field_type === "multicheck" && (
+                        <div className="flex flex-col gap-2.5 pl-[26px]">
+                          <div className="text-xs font-semibold text-muted">
+                            {t("editor.multicheck_hint", lang)}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] font-bold text-muted">
+                              {t("editor.multi_prefix", lang)}
+                            </span>
+                            <input
+                              value={f.prefix ?? ""}
+                              onChange={(e) => updateField(f.id, { prefix: e.target.value })}
+                              className="min-w-[220px] flex-1 rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold text-ink outline-none"
+                            />
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {(f.options ?? []).map((opt, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center gap-1 rounded-[10px] border border-line bg-white py-1 pl-2.5 pr-1"
+                              >
+                                <input
+                                  value={opt}
+                                  onChange={(e) =>
+                                    updateField(f.id, {
+                                      options: (f.options ?? []).map((o, i) =>
+                                        i === idx ? e.target.value : o,
+                                      ),
+                                    })
+                                  }
+                                  placeholder={t("editor.multi_item", lang)}
+                                  className="w-[150px] border-none bg-transparent text-[13px] font-semibold text-ink outline-none"
+                                />
+                                <button
+                                  onClick={() =>
+                                    updateField(f.id, {
+                                      options: (f.options ?? []).filter((_, i) => i !== idx),
+                                    })
+                                  }
+                                  className="px-1.5 py-0.5 text-sm font-bold text-muted"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() =>
+                                updateField(f.id, { options: [...(f.options ?? []), ""] })
+                              }
+                              className="rounded-[10px] bg-sand px-3 py-2 text-xs font-extrabold text-ink"
+                            >
+                              {t("editor.multi_add_item", lang)}
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-muted">
+                                {t("editor.multi_connector", lang)}
+                              </span>
+                              <input
+                                value={f.last_separator ?? " e "}
+                                onChange={(e) =>
+                                  updateField(f.id, { last_separator: e.target.value })
+                                }
+                                className="w-[70px] rounded-[10px] border border-line bg-white px-3 py-2 text-center text-[13px] font-semibold text-ink outline-none"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-muted">
+                                {t("editor.multi_suffix", lang)}
+                              </span>
+                              <input
+                                value={f.suffix ?? ""}
+                                onChange={(e) => updateField(f.id, { suffix: e.target.value })}
+                                className="w-[70px] rounded-[10px] border border-line bg-white px-3 py-2 text-center text-[13px] font-semibold text-ink outline-none"
+                              />
+                            </div>
+                          </div>
+                          {lineModeRow(f)}
                         </div>
                       )}
 

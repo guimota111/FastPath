@@ -5,6 +5,7 @@ import {
   checkboxCheckedValue,
   collectFieldDefs,
   composeMeasure,
+  composeMultiCheck,
   fieldExpectsInput,
   initialFieldValue,
   interpolateMask,
@@ -67,6 +68,9 @@ export function FloatingPanel({ standalone = false }: Props) {
   const [selected, setSelected] = useState<Mask | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [measureParts, setMeasureParts] = useState<Record<string, string[]>>({});
+  // Which items of each `multicheck` field are ticked. Kept apart from `values`
+  // because the composed sentence cannot say which items produced it.
+  const [multiChecked, setMultiChecked] = useState<Record<string, string[]>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
   const flat = useMemo(() => {
@@ -106,6 +110,18 @@ export function FloatingPanel({ standalone = false }: Props) {
     setSelected(mask);
     setValues(initial);
     setMeasureParts(parts);
+    setMultiChecked({});
+  };
+
+  /** Tick or untick one item of a `multicheck` field and recompose its phrase. */
+  const toggleMultiItem = (f: VariableBlock, option: string) => {
+    const key = normalizeMaskVariableName(f.variable_name);
+    const current = multiChecked[key] ?? [];
+    const next = current.includes(option)
+      ? current.filter((o) => o !== option)
+      : [...current, option];
+    setMultiChecked((prev) => ({ ...prev, [key]: next }));
+    setValues((v) => ({ ...v, [key]: composeMultiCheck(f, next) }));
   };
 
   /**
@@ -356,7 +372,33 @@ export function FloatingPanel({ standalone = false }: Props) {
                     {fieldLabel(f)}
                   </div>
 
-                  {f.field_type === "select" ? (
+                  {f.field_type === "multicheck" ? (
+                    <div className="flex flex-col gap-1.5">
+                      {(f.options ?? []).map((option, i) => {
+                        const ticked = (multiChecked[key] ?? []).includes(option);
+                        return (
+                          <button
+                            key={`${i}-${option}`}
+                            onClick={() => toggleMultiItem(f, option)}
+                            className="flex items-center gap-2.5 text-left"
+                          >
+                            <span
+                              className={`flex h-[20px] w-[20px] flex-shrink-0 items-center justify-center rounded-[6px] text-[12px] font-bold ${
+                                ticked
+                                  ? "bg-brand text-white"
+                                  : "border border-line bg-card text-transparent"
+                              }`}
+                            >
+                              ✓
+                            </span>
+                            <span className="text-[13px] font-bold leading-snug text-ink">
+                              {option}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : f.field_type === "select" ? (
                     (() => {
                       const options = f.options ?? [];
                       // Paragraph-long options need full-width stacked rows;

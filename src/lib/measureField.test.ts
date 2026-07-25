@@ -91,11 +91,15 @@ describe("checkboxCheckedValue", () => {
     );
   });
 
-  it("is empty when there is no text to insert", () => {
+  it("inserts nothing at all when there is no text, not a bare line break", () => {
     expect(checkboxCheckedValue(box({ checked_text: undefined }))).toBe("");
-    // A line break alone would still be inserted — the caller only uses this
-    // for a ticked box, and an empty text means the author has not filled it in.
-    expect(checkboxCheckedValue(box({ checked_text: "", line_mode: "line" }))).toBe("\n");
+    expect(checkboxCheckedValue(box({ checked_text: "", line_mode: "line" }))).toBe("");
+  });
+
+  it("leaves the line break to the template in conditional mode", () => {
+    expect(checkboxCheckedValue(box({ line_mode: "conditional" }))).toBe(
+      ". Colesterolose.",
+    );
   });
 });
 

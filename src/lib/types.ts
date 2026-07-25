@@ -12,15 +12,25 @@ export type Plan = "trial" | "basic" | "creator";
  * - `checkbox`: inserts `checked_text` when ticked, nothing when not
  * - `measure`: 1-3 numeric boxes joined by " x ", with an optional unit
  */
-export type FieldType = "text" | "textarea" | "select" | "checkbox" | "measure";
+export type FieldType =
+  | "text"
+  | "textarea"
+  | "select"
+  | "checkbox"
+  | "measure"
+  | "multicheck";
 
 /**
- * Where a checkbox's text lands when ticked:
+ * Where a field's text lands, and what happens to the surrounding line break
+ * when the field is empty:
  * - `inline`: continues the current line
- * - `line`: starts its own line
- * - `paragraph`: starts its own line after a blank one
+ * - `line`: supplies its own line break before the text
+ * - `paragraph`: supplies a blank line and then its own line
+ * - `conditional`: the template holds the line break (so the author can stack
+ *   placeholders one per line and read them), and that break is swallowed when
+ *   the field is empty, leaving no blank line behind
  */
-export type LineMode = "inline" | "line" | "paragraph";
+export type LineMode = "inline" | "line" | "paragraph" | "conditional";
 
 export type ConditionOperator = "equals" | "contains";
 
@@ -52,11 +62,24 @@ export interface VariableBlock {
   /** `checkbox`: whether it starts ticked when the mask is opened. */
   default_checked?: boolean;
   /**
-   * `checkbox`: where the inserted text goes relative to the surrounding text.
-   * Saves the author from having to type invisible line breaks into
-   * `checked_text` — see `checkboxCheckedValue`. Defaults to "inline".
+   * Where the inserted text goes relative to the surrounding text. Saves the
+   * author from having to type invisible line breaks into the value — see
+   * `checkboxCheckedValue` and `interpolateMask`. Defaults to "inline".
    */
   line_mode?: LineMode;
+  /**
+   * `multicheck`: text before the joined items, e.g.
+   * ". Presença de focos de metaplasia ".
+   */
+  prefix?: string;
+  /** `multicheck`: text after the joined items, e.g. ".". */
+  suffix?: string;
+  /**
+   * `multicheck`: what joins the last two items, e.g. " e " so two ticked items
+   * read "intestinal e pseudopilórica". Earlier items are joined with ", ".
+   * Defaults to " e ".
+   */
+  last_separator?: string;
   /** `measure`: how many boxes to show (1-3), joined by " x ". */
   measure_dims?: number;
   /** `measure`: unit appended after the last box, e.g. "cm". */

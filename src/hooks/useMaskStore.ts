@@ -100,7 +100,7 @@ export const useMaskStore = create<MaskState>()(
     }),
     {
       name: "fastpath-store",
-      version: 5,
+      version: 6,
       migrate: (persisted) => {
         const state = persisted as Partial<MaskState>;
         const settings = { ...DEFAULT_SETTINGS, ...state.settings };
@@ -115,6 +115,7 @@ export const useMaskStore = create<MaskState>()(
         // v4: reseed the Gastro masks that are still untouched, so the ones
         // whose fake-checkbox selects became real checkbox fields get replaced.
         // v5: same reseed, now that checkbox line breaks moved into line_mode.
+        // v6: again, for conditional lines and the gallbladder multicheck.
         const gastroSeeds = buildGastroMasks();
         const seedById = new Map(gastroSeeds.map((m) => [m.id, m]));
         const masks = (state.masks ?? []).map((m) => {

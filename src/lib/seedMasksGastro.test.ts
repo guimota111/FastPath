@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildGastroMasks } from "./seedMasksGastro";
 import {
   collectFieldDefs,
+  composeMultiCheck,
   initialFieldValue,
   interpolateMask,
   normalizeMaskVariableName,
@@ -123,7 +124,7 @@ describe("gastro seed masks", () => {
     const colesterolose = collectFieldDefs(colecistite.blocks).find(
       (f) => f.variable_name === "Colesterolose",
     )!;
-    expect(colesterolose.line_mode).toBe("line");
+    expect(colesterolose.line_mode).toBe("conditional");
     expect(colesterolose.checked_text).toBe(". Colesterolose.");
 
     // Inline ones keep continuing the sentence they sit in.
@@ -131,6 +132,44 @@ describe("gastro seed masks", () => {
       (f) => f.variable_name === "Calculosa",
     )!;
     expect(calculosa.line_mode ?? "inline").toBe("inline");
+  });
+
+  it("joins the gallbladder metaplasia ticks into one sentence", () => {
+    const colecistite = masks.find((m) => m.id === "gastro-vesicula-colecistite")!;
+    const metaplasia = collectFieldDefs(colecistite.blocks).find(
+      (f) => f.variable_name === "Metaplasia",
+    )!;
+    expect(metaplasia.field_type).toBe("multicheck");
+
+    const line = (selected: string[]) => composeMultiCheck(metaplasia, selected);
+    expect(line([])).toBe("");
+    expect(line(["intestinal"])).toBe(". Presença de focos de metaplasia intestinal.");
+    expect(line(["pseudopilórica"])).toBe(
+      ". Presença de focos de metaplasia pseudopilórica.",
+    );
+    expect(line(["intestinal", "pseudopilórica"])).toBe(
+      ". Presença de focos de metaplasia intestinal e pseudopilórica.",
+    );
+  });
+
+  it("renders the gallbladder mask with only the ticked lines", () => {
+    expect(
+      render("gastro-vesicula-colecistite", {
+        Metaplasia: composeMultiCheck(
+          collectFieldDefs(
+            masks.find((m) => m.id === "gastro-vesicula-colecistite")!.blocks,
+          ).find((f) => f.variable_name === "Metaplasia")!,
+          ["pseudopilórica"],
+        ),
+        Adenomiomatose: ". Presença de adenomiomatose.",
+      }),
+    ).toBe(
+      "Vesícula biliar:\n" +
+        "- Colecistite crônica calculosa.\n" +
+        ". Presença de focos de metaplasia pseudopilórica.\n" +
+        ". Ausência de sinais de malignidade.\n" +
+        ". Presença de adenomiomatose.",
+    );
   });
 
   it("omits optional lines whose checkbox is unticked", () => {
@@ -141,12 +180,14 @@ describe("gastro seed masks", () => {
         ". Ausência de sinais de malignidade.",
     );
 
+    // In "conditional" mode the template owns the line break, so the values
+    // themselves are just the text.
     const withAll = render("gastro-vesicula-colecistite", {
-      Colesterolose: "\n. Colesterolose.",
-      Metaplasia: "\n. Presença de focos de metaplasia intestinal e pseudopilórica.",
-      Seios_de_Rokitanski_Aschoff_dilatados: "\n. Seios de Rokitanski-Aschoff dilatados.",
-      Adenomiomatose: "\n. Presença de adenomiomatose.",
-      Linfonodo_peri_cístico: "\n- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
+      Colesterolose: ". Colesterolose.",
+      Metaplasia: ". Presença de focos de metaplasia intestinal e pseudopilórica.",
+      Seios_de_Rokitanski_Aschoff_dilatados: ". Seios de Rokitanski-Aschoff dilatados.",
+      Adenomiomatose: ". Presença de adenomiomatose.",
+      Linfonodo_peri_cístico: "- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
     });
     expect(withAll).toBe(
       "Vesícula biliar:\n" +

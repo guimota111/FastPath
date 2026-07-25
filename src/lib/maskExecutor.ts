@@ -200,40 +200,65 @@ const LINE_MODE_PREFIX: Record<LineMode, string> = {
 };
 
 /**
- * The text a ticked checkbox inserts, including the line break its `line_mode`
- * asks for. Keeping the break out of `checked_text` means mask authors never
- * have to type an invisible newline to get the field on its own line.
+ * The text a checkbox inserts in the given state, including the line break its
+ * `line_mode` asks for. Keeping the break out of the text means mask authors
+ * never have to type an invisible newline to get the field on its own line.
+ *
+ * An empty text for a state inserts nothing at all — not even the line break —
+ * so a "conditional" field simply drops out of the report in that state.
  */
-export function checkboxCheckedValue(field: VariableBlock): string {
-  const text = field.checked_text ?? "";
+export function checkboxValue(field: VariableBlock, checked: boolean): string {
+  const text = (checked ? field.checked_text : field.unchecked_text) ?? "";
   if (text === "") return "";
   return LINE_MODE_PREFIX[field.line_mode ?? "inline"] + text;
 }
 
+/** Order-independent identity of a set of ticked items. */
+function combinationKey(items: string[]): string {
+  return [...items].sort().join("");
+}
+
 /**
- * Compose a `multicheck` value from the ticked items: the prefix, the items
- * joined into a readable list, then the suffix. No ticked item means no value
- * at all, so the whole phrase disappears.
- *
- * Items come out in the field's own option order, not the order they were
- * ticked, so the sentence reads the same however the user got there.
+ * Every combination of `items`, ordered by how many are ticked: none first,
+ * then each single, then each pair, and so on. This is the order the editor
+ * lists its text boxes in, which is how a person enumerates the cases.
+ */
+export function multiCombinations(items: string[]): string[][] {
+  const all: string[][] = [];
+  for (let size = 0; size <= items.length; size += 1) {
+    const pick = (start: number, current: string[]) => {
+      if (current.length === size) {
+        all.push([...current]);
+        return;
+      }
+      for (let i = start; i < items.length; i += 1) {
+        current.push(items[i]);
+        pick(i + 1, current);
+        current.pop();
+      }
+    };
+    pick(0, []);
+  }
+  return all;
+}
+
+/**
+ * The text a `multicheck` field inserts for the items currently ticked. Each
+ * combination has its own text, so wording that changes with the combination is
+ * written out rather than assembled — an unlisted combination, or one whose
+ * text is blank, inserts nothing.
  */
 export function composeMultiCheck(field: VariableBlock, selected: string[]): string {
+  // Ignore ticks for items that are no longer options.
   const items = (field.options ?? []).filter((option) => selected.includes(option));
-  if (items.length === 0) return "";
-
-  const lastSeparator = field.last_separator ?? " e ";
-  const joined =
-    items.length === 1
-      ? items[0]
-      : items.slice(0, -1).join(", ") + lastSeparator + items[items.length - 1];
-
-  return (
-    LINE_MODE_PREFIX[field.line_mode ?? "inline"] +
-    (field.prefix ?? "") +
-    joined +
-    (field.suffix ?? "")
+  const wanted = combinationKey(items);
+  const match = (field.combinations ?? []).find(
+    (c) => combinationKey(c.items) === wanted,
   );
+
+  const text = match?.text ?? "";
+  if (text === "") return "";
+  return LINE_MODE_PREFIX[field.line_mode ?? "inline"] + text;
 }
 
 /**
@@ -246,7 +271,10 @@ export function initialFieldValue(field: VariableBlock): string {
     case "select":
       return field.options?.[0] ?? "";
     case "checkbox":
-      return field.default_checked ? checkboxCheckedValue(field) : "";
+      // The unticked state can carry text too, so it is not simply "".
+      return checkboxValue(field, !!field.default_checked);
+    case "multicheck":
+      return composeMultiCheck(field, []);
     default:
       return "";
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { VariableBlock } from "./types";
 import {
-  checkboxCheckedValue,
+  checkboxValue,
   composeMeasure,
   fieldExpectsInput,
   initialFieldValue,
@@ -75,29 +75,29 @@ describe("splitMeasure", () => {
   });
 });
 
-describe("checkboxCheckedValue", () => {
+describe("checkboxValue", () => {
   const box = (patch: Partial<VariableBlock> = {}) =>
     measure({ field_type: "checkbox", checked_text: ". Colesterolose.", ...patch });
 
   it("continues the current line by default", () => {
-    expect(checkboxCheckedValue(box())).toBe(". Colesterolose.");
-    expect(checkboxCheckedValue(box({ line_mode: "inline" }))).toBe(". Colesterolose.");
+    expect(checkboxValue(box(), true)).toBe(". Colesterolose.");
+    expect(checkboxValue(box({ line_mode: "inline" }), true)).toBe(". Colesterolose.");
   });
 
   it("supplies the line break so the author never types one", () => {
-    expect(checkboxCheckedValue(box({ line_mode: "line" }))).toBe("\n. Colesterolose.");
-    expect(checkboxCheckedValue(box({ line_mode: "paragraph" }))).toBe(
+    expect(checkboxValue(box({ line_mode: "line" }), true)).toBe("\n. Colesterolose.");
+    expect(checkboxValue(box({ line_mode: "paragraph" }), true)).toBe(
       "\n\n. Colesterolose.",
     );
   });
 
   it("inserts nothing at all when there is no text, not a bare line break", () => {
-    expect(checkboxCheckedValue(box({ checked_text: undefined }))).toBe("");
-    expect(checkboxCheckedValue(box({ checked_text: "", line_mode: "line" }))).toBe("");
+    expect(checkboxValue(box({ checked_text: undefined }), true)).toBe("");
+    expect(checkboxValue(box({ checked_text: "", line_mode: "line" }), true)).toBe("");
   });
 
   it("leaves the line break to the template in conditional mode", () => {
-    expect(checkboxCheckedValue(box({ line_mode: "conditional" }))).toBe(
+    expect(checkboxValue(box({ line_mode: "conditional" }), true)).toBe(
       ". Colesterolose.",
     );
   });
@@ -118,6 +118,19 @@ describe("initialFieldValue", () => {
     const base = { ...measure(), field_type: "checkbox" as const, checked_text: " (Giemsa)" };
     expect(initialFieldValue({ ...base, default_checked: true })).toBe(" (Giemsa)");
     expect(initialFieldValue(base)).toBe("");
+  });
+
+  it("starts an unticked checkbox on its unticked text, not on nothing", () => {
+    const base = {
+      ...measure(),
+      field_type: "checkbox" as const,
+      checked_text: ". Margens comprometidas.",
+      unchecked_text: ". Margens livres.",
+    };
+    expect(initialFieldValue(base)).toBe(". Margens livres.");
+    expect(initialFieldValue({ ...base, default_checked: true })).toBe(
+      ". Margens comprometidas.",
+    );
   });
 
   it("starts text and measure fields empty", () => {

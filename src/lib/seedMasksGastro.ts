@@ -13,7 +13,7 @@
 // - The first option of a select is the value the panel preselects, matching
 //   the AHK `ChooseN` default.
 
-import type { LineMode, Mask, VariableBlock } from "./types";
+import type { LineMode, Mask, MultiCombination, VariableBlock } from "./types";
 import { templateToBlocks } from "./maskExecutor";
 
 type SeedField = Pick<VariableBlock, "variable_name" | "field_type"> & {
@@ -23,9 +23,7 @@ type SeedField = Pick<VariableBlock, "variable_name" | "field_type"> & {
   line_mode?: LineMode;
   measure_dims?: number;
   unit?: string;
-  prefix?: string;
-  suffix?: string;
-  last_separator?: string;
+  combinations?: MultiCombination[];
 };
 
 /**
@@ -659,14 +657,24 @@ const SEEDS: GastroSeed[] = [
     fields: [
       check("Calculosa", " calculosa", { checked: true }),
       check("Colesterolose", ". Colesterolose.", { mode: "conditional" }),
-      // AHK had two checkboxes that shared one sentence; multicheck joins the
-      // ticked ones so "intestinal e pseudopilórica" reads correctly.
+      // AHK had two checkboxes that shared one sentence; multicheck spells out
+      // the wording for each combination of the two.
       {
         variable_name: "Metaplasia",
         field_type: "multicheck",
         options: ["intestinal", "pseudopilórica"],
-        prefix: ". Presença de focos de metaplasia ",
-        suffix: ".",
+        combinations: [
+          { items: [], text: "" },
+          { items: ["intestinal"], text: ". Presença de focos de metaplasia intestinal." },
+          {
+            items: ["pseudopilórica"],
+            text: ". Presença de focos de metaplasia pseudopilórica.",
+          },
+          {
+            items: ["intestinal", "pseudopilórica"],
+            text: ". Presença de focos de metaplasia intestinal e pseudopilórica.",
+          },
+        ],
         line_mode: "conditional",
       },
       check(
@@ -801,9 +809,7 @@ export function buildGastroMasks(now = new Date().toISOString()): Mask[] {
       line_mode: f.line_mode,
       measure_dims: f.measure_dims,
       unit: f.unit,
-      prefix: f.prefix,
-      suffix: f.suffix,
-      last_separator: f.last_separator,
+      combinations: f.combinations,
       required: false,
     }));
     // Deterministic block ids keep seeded masks byte-identical across builds.

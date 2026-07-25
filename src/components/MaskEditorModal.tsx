@@ -4,12 +4,13 @@ import type { Mask, VariableBlock } from "@/lib/types";
 import type { FieldType, LineMode } from "@/lib/types";
 import {
   blocksToTemplate,
-  checkboxCheckedValue,
+  checkboxValue,
   collectFieldDefs,
   composeMultiCheck,
   initialFieldValue,
   interpolateMask,
   measureDims,
+  multiCombinations,
   normalizeMaskVariableName,
   templateToBlocks,
 } from "@/lib/maskExecutor";
@@ -28,6 +29,12 @@ interface Props {
 function fieldToken(f: VariableBlock): string {
   return `{{${normalizeMaskVariableName(f.variable_name)}}}`;
 }
+
+/**
+ * A multicheck needs 2^n text boxes; past this many items the table stops being
+ * something a person can fill in, so the editor refuses instead of freezing.
+ */
+const MAX_MULTI_ITEMS = 6;
 
 export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
   const getMask = useMaskStore((s) => s.getMask);
@@ -142,6 +149,63 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
     updateField(f.id, patch);
   };
 
+  /**
+   * One text box per combination of the field's items. The list is generated
+   * from the current items, and existing texts are matched by which items they
+   * belong to, so editing the items keeps the texts that still apply.
+   */
+  const combinationRows = (f: VariableBlock) => {
+    const items = (f.options ?? []).filter((o) => o.trim() !== "");
+    if (items.length === 0) return null;
+    if (items.length > MAX_MULTI_ITEMS) {
+      return (
+        <div className="text-xs font-bold text-red-600">
+          {t("editor.multi_too_many", lang).replace("{n}", String(MAX_MULTI_ITEMS))}
+        </div>
+      );
+    }
+
+    const key = (list: string[]) => [...list].sort().join("");
+    const existing = new Map(
+      (f.combinations ?? []).map((c) => [key(c.items), c.text] as const),
+    );
+
+    const setText = (combo: string[], text: string) => {
+      const next = multiCombinations(items).map((c) => ({
+        items: c,
+        text: key(c) === key(combo) ? text : (existing.get(key(c)) ?? ""),
+      }));
+      updateField(f.id, { combinations: next });
+    };
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className="text-[11px] font-bold text-muted">
+          {t("editor.multi_combinations", lang)}
+        </div>
+        {multiCombinations(items).map((combo) => (
+          <div key={key(combo) || "none"} className="flex items-start gap-2">
+            <span
+              className={`mt-1.5 w-[190px] flex-shrink-0 truncate text-[11.5px] font-extrabold ${
+                combo.length === 0 ? "text-muted/70" : "text-brand"
+              }`}
+              title={combo.join(" + ")}
+            >
+              {combo.length === 0 ? t("editor.multi_none", lang) : combo.join(" + ")}
+            </span>
+            <textarea
+              value={existing.get(key(combo)) ?? ""}
+              rows={1}
+              onChange={(e) => setText(combo, e.target.value)}
+              placeholder={t("editor.multi_combination_placeholder", lang)}
+              className="min-h-[34px] flex-1 resize-y rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold leading-snug text-ink outline-none placeholder:font-normal placeholder:text-muted/70"
+            />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   /** The line-mode picker, shared by checkbox and multicheck fields. */
   const lineModeRow = (f: VariableBlock) => (
     <div className="flex flex-wrap items-center gap-2">
@@ -185,9 +249,9 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
         const boxes = Array.from({ length: dims }, (_, i) => `${i + 1},0`).join(" x ");
         values[key] = f.unit?.trim() ? `${boxes} ${f.unit.trim()}` : boxes;
       } else if (f.field_type === "checkbox") {
-        values[key] = checkboxCheckedValue(f);
+        values[key] = checkboxValue(f, true);
       } else if (f.field_type === "multicheck") {
-        // Show every item ticked so the author sees the full sentence.
+        // Show every item ticked so the author sees the fullest case.
         values[key] = composeMultiCheck(f, f.options ?? []);
       } else {
         values[key] = `[${f.variable_name.replace(/_/g, " ").toLowerCase()}]`;
@@ -413,6 +477,18 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                             }
                             className="min-h-[34px] w-full resize-y rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold leading-snug text-ink outline-none"
                           />
+                          <div className="text-[11px] font-bold text-muted">
+                            {t("editor.unchecked_text", lang)}
+                          </div>
+                          <textarea
+                            value={f.unchecked_text ?? ""}
+                            rows={1}
+                            placeholder={t("editor.unchecked_text_placeholder", lang)}
+                            onChange={(e) =>
+                              updateField(f.id, { unchecked_text: e.target.value })
+                            }
+                            className="min-h-[34px] w-full resize-y rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold leading-snug text-ink outline-none placeholder:font-normal placeholder:text-muted/70"
+                          />
                           {lineModeRow(f)}
                           <button
                             onClick={() =>
@@ -440,16 +516,6 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                         <div className="flex flex-col gap-2.5 pl-[26px]">
                           <div className="text-xs font-semibold text-muted">
                             {t("editor.multicheck_hint", lang)}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[11px] font-bold text-muted">
-                              {t("editor.multi_prefix", lang)}
-                            </span>
-                            <input
-                              value={f.prefix ?? ""}
-                              onChange={(e) => updateField(f.id, { prefix: e.target.value })}
-                              className="min-w-[220px] flex-1 rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold text-ink outline-none"
-                            />
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {(f.options ?? []).map((opt, idx) => (
@@ -490,30 +556,7 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                               {t("editor.multi_add_item", lang)}
                             </button>
                           </div>
-                          <div className="flex flex-wrap items-center gap-4">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-bold text-muted">
-                                {t("editor.multi_connector", lang)}
-                              </span>
-                              <input
-                                value={f.last_separator ?? " e "}
-                                onChange={(e) =>
-                                  updateField(f.id, { last_separator: e.target.value })
-                                }
-                                className="w-[70px] rounded-[10px] border border-line bg-white px-3 py-2 text-center text-[13px] font-semibold text-ink outline-none"
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-bold text-muted">
-                                {t("editor.multi_suffix", lang)}
-                              </span>
-                              <input
-                                value={f.suffix ?? ""}
-                                onChange={(e) => updateField(f.id, { suffix: e.target.value })}
-                                className="w-[70px] rounded-[10px] border border-line bg-white px-3 py-2 text-center text-[13px] font-semibold text-ink outline-none"
-                              />
-                            </div>
-                          </div>
+                          {combinationRows(f)}
                           {lineModeRow(f)}
                         </div>
                       )}

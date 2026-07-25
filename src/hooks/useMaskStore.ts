@@ -131,7 +131,7 @@ export const useMaskStore = create<MaskState>()(
     }),
     {
       name: "fastpath-store",
-      version: 7,
+      version: 8,
       migrate: (persisted) => {
         const state = persisted as Partial<MaskState>;
         const settings = { ...DEFAULT_SETTINGS, ...state.settings };
@@ -141,9 +141,10 @@ export const useMaskStore = create<MaskState>()(
           settings.hotkeyOpenMenu = DEFAULT_SETTINGS.hotkeyOpenMenu;
         }
 
-        // v3-v6 reshaped the Gastro seeds (real checkboxes, line_mode,
-        // conditional lines, multicheck). Refresh the copies the user never
-        // edited so they pick up the new shape; edited ones are left alone.
+        // v3-v8 reshaped the Gastro seeds (real checkboxes, line_mode,
+        // conditional lines, per-combination multicheck texts). Refresh the
+        // copies the user never edited so they pick up the new shape; edited
+        // ones are left alone.
         const gastroSeeds = buildGastroMasks();
         const seedById = new Map(gastroSeeds.map((m) => [m.id, m]));
         const masks = (state.masks ?? []).map((m) => {

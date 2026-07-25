@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import type { ExecutionMethod, Mask, VariableBlock } from "@/lib/types";
 import {
-  checkboxCheckedValue,
+  checkboxValue,
   collectFieldDefs,
   composeMeasure,
   composeMultiCheck,
@@ -71,6 +71,9 @@ export function FloatingPanel({ standalone = false }: Props) {
   // Which items of each `multicheck` field are ticked. Kept apart from `values`
   // because the composed sentence cannot say which items produced it.
   const [multiChecked, setMultiChecked] = useState<Record<string, string[]>>({});
+  // Likewise for checkboxes: with an unticked text configured, a non-empty
+  // value no longer means "ticked".
+  const [ticked, setTicked] = useState<Record<string, boolean>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
   const flat = useMemo(() => {
@@ -102,15 +105,25 @@ export function FloatingPanel({ standalone = false }: Props) {
   const openMask = (mask: Mask) => {
     const initial: Record<string, string> = {};
     const parts: Record<string, string[]> = {};
+    const initialTicked: Record<string, boolean> = {};
     for (const f of collectFieldDefs(mask.blocks)) {
       const key = normalizeMaskVariableName(f.variable_name);
       initial[key] = initialFieldValue(f);
       if (f.field_type === "measure") parts[key] = splitMeasure(initial[key], f);
+      if (f.field_type === "checkbox") initialTicked[key] = !!f.default_checked;
     }
     setSelected(mask);
     setValues(initial);
     setMeasureParts(parts);
     setMultiChecked({});
+    setTicked(initialTicked);
+  };
+
+  const toggleCheckbox = (f: VariableBlock) => {
+    const key = normalizeMaskVariableName(f.variable_name);
+    const next = !ticked[key];
+    setTicked((prev) => ({ ...prev, [key]: next }));
+    setValues((v) => ({ ...v, [key]: checkboxValue(f, next) }));
   };
 
   /** Tick or untick one item of a `multicheck` field and recompose its phrase. */
@@ -340,16 +353,11 @@ export function FloatingPanel({ standalone = false }: Props) {
 
               // Checkboxes carry their own label on the switch row.
               if (f.field_type === "checkbox") {
-                const checked = (values[key] ?? "") !== "";
+                const checked = !!ticked[key];
                 return (
                   <button
                     key={f.id}
-                    onClick={() =>
-                      setValues((v) => ({
-                        ...v,
-                        [key]: checked ? "" : checkboxCheckedValue(f),
-                      }))
-                    }
+                    onClick={() => toggleCheckbox(f)}
                     className="flex items-center gap-2.5 text-left"
                   >
                     <span

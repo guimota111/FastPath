@@ -42,6 +42,16 @@ export type ConditionOperator = "equals" | "contains";
  */
 export type ExecutionMethod = "clipboard" | "paste" | "key-by-key";
 
+/**
+ * One row of a `multicheck` field's text table: which items are ticked, and
+ * what to insert for exactly that combination.
+ */
+export interface MultiCombination {
+  /** Ticked item labels. An empty array is the "nothing ticked" case. */
+  items: string[];
+  text: string;
+}
+
 /** A user input field that gets substituted into the generated report. */
 export interface VariableBlock {
   id: string;
@@ -57,29 +67,29 @@ export interface VariableBlock {
   default?: string;
   /** Options for `select` fields. */
   options?: string[];
-  /** `checkbox`: text inserted when ticked. Unticked inserts nothing. */
+  /** `checkbox`: text inserted when ticked. Empty inserts nothing. */
   checked_text?: string;
+  /**
+   * `checkbox`: text inserted when NOT ticked. Empty inserts nothing — and
+   * under `line_mode: "conditional"` that also drops the line the template
+   * reserved for this field.
+   */
+  unchecked_text?: string;
   /** `checkbox`: whether it starts ticked when the mask is opened. */
   default_checked?: boolean;
   /**
    * Where the inserted text goes relative to the surrounding text. Saves the
    * author from having to type invisible line breaks into the value — see
-   * `checkboxCheckedValue` and `interpolateMask`. Defaults to "inline".
+   * `checkboxValue` and `interpolateMask`. Defaults to "inline".
    */
   line_mode?: LineMode;
   /**
-   * `multicheck`: text before the joined items, e.g.
-   * ". Presença de focos de metaplasia ".
+   * `multicheck`: one text per combination of ticked items, including the
+   * combination where nothing is ticked. Wording that changes with the
+   * combination ("intestinal" vs "intestinal e pseudopilórica") is spelled out
+   * per case rather than assembled from a connector.
    */
-  prefix?: string;
-  /** `multicheck`: text after the joined items, e.g. ".". */
-  suffix?: string;
-  /**
-   * `multicheck`: what joins the last two items, e.g. " e " so two ticked items
-   * read "intestinal e pseudopilórica". Earlier items are joined with ", ".
-   * Defaults to " e ".
-   */
-  last_separator?: string;
+  combinations?: MultiCombination[];
   /** `measure`: how many boxes to show (1-3), joined by " x ". */
   measure_dims?: number;
   /** `measure`: unit appended after the last box, e.g. "cm". */

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { VariableBlock } from "./types";
 import {
+  checkboxValue,
   composeMultiCheck,
   interpolateMask,
+  multiCombinations,
   templateToBlocks,
 } from "./maskExecutor";
 
@@ -93,22 +95,32 @@ describe("conditional line mode", () => {
 });
 
 describe("composeMultiCheck", () => {
-  // Metaplasia in the gallbladder mask: two independent ticks that have to read
-  // as one sentence.
+  // Metaplasia in the gallbladder mask: two independent ticks, each combination
+  // spelled out because the wording is not assembled from the item names.
   const metaplasia = field({
     variable_name: "Metaplasia",
     field_type: "multicheck",
     options: ["intestinal", "pseudopilórica"],
-    prefix: ". Presença de focos de metaplasia ",
-    suffix: ".",
     line_mode: "line",
+    combinations: [
+      { items: [], text: "" },
+      { items: ["intestinal"], text: ". Presença de focos de metaplasia intestinal." },
+      {
+        items: ["pseudopilórica"],
+        text: ". Presença de focos de metaplasia pseudopilórica.",
+      },
+      {
+        items: ["intestinal", "pseudopilórica"],
+        text: ". Presença de focos de metaplasia intestinal e pseudopilórica.",
+      },
+    ],
   });
 
-  it("inserts nothing when no item is ticked", () => {
+  it("inserts the text written for the empty combination", () => {
     expect(composeMultiCheck(metaplasia, [])).toBe("");
   });
 
-  it("reads as a single item without the connector", () => {
+  it("picks the text of each single-item combination", () => {
     expect(composeMultiCheck(metaplasia, ["intestinal"])).toBe(
       "\n. Presença de focos de metaplasia intestinal.",
     );
@@ -117,39 +129,110 @@ describe("composeMultiCheck", () => {
     );
   });
 
-  it("joins two items with the connector", () => {
+  it("picks the text written for both together", () => {
     expect(composeMultiCheck(metaplasia, ["intestinal", "pseudopilórica"])).toBe(
       "\n. Presença de focos de metaplasia intestinal e pseudopilórica.",
     );
   });
 
-  it("keeps the field's option order regardless of ticking order", () => {
+  it("matches a combination whatever order the items were ticked in", () => {
     expect(composeMultiCheck(metaplasia, ["pseudopilórica", "intestinal"])).toBe(
       composeMultiCheck(metaplasia, ["intestinal", "pseudopilórica"]),
     );
   });
 
-  it("uses commas before the connector for three or more items", () => {
-    const three = field({
+  it("can give the empty combination a text of its own", () => {
+    const withNoneText = field({
       field_type: "multicheck",
-      options: ["a", "b", "c"],
-      prefix: "Achados: ",
-      suffix: ".",
+      options: ["a"],
+      combinations: [
+        { items: [], text: ". Sem metaplasia." },
+        { items: ["a"], text: ". Com metaplasia." },
+      ],
     });
-    expect(composeMultiCheck(three, ["a", "b", "c"])).toBe("Achados: a, b e c.");
-    expect(composeMultiCheck(three, ["a", "c"])).toBe("Achados: a e c.");
+    expect(composeMultiCheck(withNoneText, [])).toBe(". Sem metaplasia.");
+    expect(composeMultiCheck(withNoneText, ["a"])).toBe(". Com metaplasia.");
   });
 
-  it("honours a custom connector", () => {
-    const en = field({
+  it("inserts nothing for a combination left blank", () => {
+    const partial = field({
       field_type: "multicheck",
-      options: ["x", "y"],
-      last_separator: " and ",
+      options: ["a", "b"],
+      line_mode: "line",
+      combinations: [
+        { items: ["a"], text: "só a" },
+        { items: ["a", "b"], text: "" },
+      ],
     });
-    expect(composeMultiCheck(en, ["x", "y"])).toBe("x and y");
+    expect(composeMultiCheck(partial, ["a"])).toBe("\nsó a");
+    expect(composeMultiCheck(partial, ["a", "b"])).toBe("");
+    // Not listed at all behaves the same as blank.
+    expect(composeMultiCheck(partial, ["b"])).toBe("");
   });
 
   it("ignores ticked values that are not options any more", () => {
     expect(composeMultiCheck(metaplasia, ["removida"])).toBe("");
+    // A stale tick alongside a live one still resolves the live combination.
+    expect(composeMultiCheck(metaplasia, ["removida", "intestinal"])).toBe(
+      "\n. Presença de focos de metaplasia intestinal.",
+    );
+  });
+});
+
+describe("multiCombinations", () => {
+  it("lists every combination, fewest ticks first", () => {
+    expect(multiCombinations(["a", "b"])).toEqual([[], ["a"], ["b"], ["a", "b"]]);
+  });
+
+  it("grows as 2^n", () => {
+    expect(multiCombinations([])).toEqual([[]]);
+    expect(multiCombinations(["a"])).toHaveLength(2);
+    expect(multiCombinations(["a", "b", "c"])).toHaveLength(8);
+    expect(multiCombinations(["a", "b", "c", "d"])).toHaveLength(16);
+  });
+
+  it("keeps items in the field's own order inside each combination", () => {
+    expect(multiCombinations(["z", "a"])).toEqual([[], ["z"], ["a"], ["z", "a"]]);
+  });
+});
+
+describe("checkbox with an unticked text", () => {
+  const box = field({
+    variable_name: "Margens",
+    field_type: "checkbox",
+    checked_text: ". Margens comprometidas.",
+    unchecked_text: ". Margens livres.",
+    line_mode: "conditional",
+  });
+
+  it("inserts a different sentence for each state", () => {
+    expect(checkboxValue(box, true)).toBe(". Margens comprometidas.");
+    expect(checkboxValue(box, false)).toBe(". Margens livres.");
+  });
+
+  it("keeps the line for either state when both texts are set", () => {
+    const template = "- Peça.\n{{Margens}}\n. Fim.";
+    const render = (checked: boolean) =>
+      interpolateMask(templateToBlocks(template, [box]), {
+        Margens: checkboxValue(box, checked),
+      });
+
+    expect(render(false)).toBe("- Peça.\n. Margens livres.\n. Fim.");
+    expect(render(true)).toBe("- Peça.\n. Margens comprometidas.\n. Fim.");
+  });
+
+  it("drops the reserved line when the unticked text is empty", () => {
+    const optional = field({
+      variable_name: "Extra",
+      field_type: "checkbox",
+      checked_text: ". Extra.",
+      line_mode: "conditional",
+    });
+    const template = "- Peça.\n{{Extra}}\n. Fim.";
+    expect(
+      interpolateMask(templateToBlocks(template, [optional]), {
+        Extra: checkboxValue(optional, false),
+      }),
+    ).toBe("- Peça.\n. Fim.");
   });
 });

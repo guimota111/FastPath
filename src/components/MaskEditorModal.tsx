@@ -33,6 +33,7 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
   const getMask = useMaskStore((s) => s.getMask);
   const upsertMask = useMaskStore((s) => s.upsertMask);
   const areas = useMaskStore((s) => s.areas);
+  const allMasks = useMaskStore((s) => s.masks);
   const lang = useMaskStore((s) => s.settings.language);
 
   const existing = maskId ? getMask(maskId) : undefined;
@@ -112,6 +113,17 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
 
   const collapseAll = () => setCollapsedIds(new Set(fields.map((f) => f.id)));
   const expandAll = () => setCollapsedIds(new Set());
+
+  /** Subareas already used by other masks in the selected area. */
+  const subareaSuggestions = useMemo(() => {
+    const seen: string[] = [];
+    for (const m of allMasks) {
+      if (m.area !== area || m.id === id) continue;
+      const sub = m.category?.trim();
+      if (sub && !seen.includes(sub)) seen.push(sub);
+    }
+    return seen;
+  }, [allMasks, area, id]);
 
   /** Drop the field's chip into the template at the caret. */
   const insertToken = (f: VariableBlock) =>
@@ -244,13 +256,33 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
 
             <div>
               <div className="mb-1.5 text-xs font-bold text-muted">
-                {t("editor.category", lang)}
+                {t("editor.subarea", lang)}
               </div>
               <input
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
+                placeholder={t("editor.subarea_placeholder", lang)}
                 className="w-[260px] rounded-[14px] border border-line bg-card px-3 py-2 text-[13px] font-bold text-ink outline-none"
               />
+              {/* Reuse a subarea already present in this area rather than
+                  retyping it (and risking a near-duplicate group). */}
+              {subareaSuggestions.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {subareaSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setCategory(s)}
+                      className={`rounded-[10px] px-3 py-1.5 text-[11px] font-extrabold ${
+                        category === s
+                          ? "bg-brand text-white"
+                          : "border border-line bg-card text-muted"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -14,6 +14,14 @@ export type Plan = "trial" | "basic" | "creator";
  */
 export type FieldType = "text" | "textarea" | "select" | "checkbox" | "measure";
 
+/**
+ * Where a checkbox's text lands when ticked:
+ * - `inline`: continues the current line
+ * - `line`: starts its own line
+ * - `paragraph`: starts its own line after a blank one
+ */
+export type LineMode = "inline" | "line" | "paragraph";
+
 export type ConditionOperator = "equals" | "contains";
 
 /**
@@ -43,6 +51,12 @@ export interface VariableBlock {
   checked_text?: string;
   /** `checkbox`: whether it starts ticked when the mask is opened. */
   default_checked?: boolean;
+  /**
+   * `checkbox`: where the inserted text goes relative to the surrounding text.
+   * Saves the author from having to type invisible line breaks into
+   * `checked_text` — see `checkboxCheckedValue`. Defaults to "inline".
+   */
+  line_mode?: LineMode;
   /** `measure`: how many boxes to show (1-3), joined by " x ". */
   measure_dims?: number;
   /** `measure`: unit appended after the last box, e.g. "cm". */

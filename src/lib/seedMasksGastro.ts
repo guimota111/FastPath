@@ -6,33 +6,40 @@
 //   ("- " for the diagnosis header, ". " for body lines).
 // - AHK checkboxes become FastPath `checkbox` fields: ticking inserts
 //   `checked_text`, unticking inserts nothing. Where the checkbox stands for a
-//   whole line, `checked_text` carries its own leading "\n".
+//   whole line or paragraph, `line_mode` supplies the break instead of the text
+//   carrying an invisible "\n".
 // - AHK dropdowns that were only read when a checkbox was ticked are merged
 //   into a single select with an empty first option (e.g. "Agregado_linfoide").
 // - The first option of a select is the value the panel preselects, matching
 //   the AHK `ChooseN` default.
 
-import type { Mask, VariableBlock } from "./types";
+import type { LineMode, Mask, VariableBlock } from "./types";
 import { templateToBlocks } from "./maskExecutor";
 
 type SeedField = Pick<VariableBlock, "variable_name" | "field_type"> & {
   options?: string[];
   checked_text?: string;
   default_checked?: boolean;
+  line_mode?: LineMode;
   measure_dims?: number;
   unit?: string;
 };
 
-/** An AHK checkbox: inserts `text` when ticked, nothing otherwise. */
+/**
+ * An AHK checkbox: inserts `text` when ticked, nothing otherwise. `mode` says
+ * whether the text continues the current line, starts a new one, or opens a new
+ * paragraph — the line break itself is never part of `text`.
+ */
 const check = (
   variable_name: string,
   text: string,
-  default_checked = false,
+  { checked = false, mode = "inline" as LineMode } = {},
 ): SeedField => ({
   variable_name,
   field_type: "checkbox",
   checked_text: text,
-  default_checked,
+  default_checked: checked,
+  line_mode: mode,
 });
 
 interface GastroSeed {
@@ -70,7 +77,7 @@ const MUCOSA = [
 ];
 
 /** AHK had this as a checkbox, ticked by default, next to the H. pylori result. */
-const giemsaField = () => check("Giemsa", " (Giemsa)", true);
+const giemsaField = () => check("Giemsa", " (Giemsa)", { checked: true });
 
 const ATROFIA = ["ausente", "leve", "moderada", "acentuada"];
 const HP_GRADUADA = [
@@ -154,8 +161,8 @@ const SEEDS: GastroSeed[] = [
       { variable_name: "Contagem_de_eosinófilos_por_campo", field_type: "text" },
       check(
         "Incluir_nota",
-        "\n\nNota: Os achados morfológicos são compatíveis com esofagite eosinofílica. Recomenda-se correlação com demais dados clínicos e endoscópicos.",
-        true,
+        "Nota: Os achados morfológicos são compatíveis com esofagite eosinofílica. Recomenda-se correlação com demais dados clínicos e endoscópicos.",
+        { checked: true, mode: "paragraph" },
       ),
     ],
     template:
@@ -357,7 +364,8 @@ const SEEDS: GastroSeed[] = [
       ...hpFields(),
       check(
         "Nota_sobre_alterações_epiteliais_intensas",
-        "\n\nNota: Mucosa com intensas alterações epiteliais de aspectos reativo e regenerativo. Recomenda-se, a critério clínico, nova amostragem após tratamento.",
+        "Nota: Mucosa com intensas alterações epiteliais de aspectos reativo e regenerativo. Recomenda-se, a critério clínico, nova amostragem após tratamento.",
+        { mode: "paragraph" },
       ),
     ],
     template:
@@ -388,8 +396,8 @@ const SEEDS: GastroSeed[] = [
       },
       check(
         "Nota_sugestivo_de_lesão_química",
-        "\nNota: os achados morfológicos são sugestivos de lesão química. Recomenda-se correlação com demais dados clínicos.",
-        true,
+        "Nota: os achados morfológicos são sugestivos de lesão química. Recomenda-se correlação com demais dados clínicos.",
+        { checked: true, mode: "line" },
       ),
     ],
     template:
@@ -592,11 +600,11 @@ const SEEDS: GastroSeed[] = [
     name: "Colite erosiva",
     category: "Cólon",
     fields: [
-      check("Agressão_focal_às_criptas", "focalmente ", true),
+      check("Agressão_focal_às_criptas", "focalmente ", { checked: true }),
       check(
         "Incluir_nota",
-        "\n\nNota: estes achados podem ser vistos em colites infecciosas, reação a medicamentos, em doença inflamatória intestinal, entre outros diagnósticos diferenciais. Necessária correlação com dados clínicos e endoscópicos.",
-        true,
+        "Nota: estes achados podem ser vistos em colites infecciosas, reação a medicamentos, em doença inflamatória intestinal, entre outros diagnósticos diferenciais. Necessária correlação com dados clínicos e endoscópicos.",
+        { checked: true, mode: "paragraph" },
       ),
     ],
     template:
@@ -611,11 +619,11 @@ const SEEDS: GastroSeed[] = [
     name: "Colite reativa",
     category: "Cólon",
     fields: [
-      check("Ver_nota_no_título", " (ver nota)", true),
+      check("Ver_nota_no_título", " (ver nota)", { checked: true }),
       check(
         "Incluir_nota",
-        "\n\nNota: alterações reativas inespecíficas podem ser vistas após resolução de processo inflamatório autolimitado. Necessária correlação com dados clínicos e colonoscópicos.",
-        true,
+        "Nota: alterações reativas inespecíficas podem ser vistas após resolução de processo inflamatório autolimitado. Necessária correlação com dados clínicos e colonoscópicos.",
+        { checked: true, mode: "paragraph" },
       ),
     ],
     template:
@@ -643,8 +651,8 @@ const SEEDS: GastroSeed[] = [
     name: "Colecistite crônica",
     category: "Vesícula biliar",
     fields: [
-      check("Calculosa", " calculosa", true),
-      check("Colesterolose", "\n. Colesterolose."),
+      check("Calculosa", " calculosa", { checked: true }),
+      check("Colesterolose", ". Colesterolose.", { mode: "line" }),
       // AHK combined two checkboxes into one sentence; a select keeps the
       // "intestinal e pseudopilórica" wording correct.
       {
@@ -659,16 +667,19 @@ const SEEDS: GastroSeed[] = [
       },
       check(
         "Seios_de_Rokitanski_Aschoff_dilatados",
-        "\n. Seios de Rokitanski-Aschoff dilatados.",
+        ". Seios de Rokitanski-Aschoff dilatados.",
+        { mode: "line" },
       ),
-      check("Adenomiomatose", "\n. Presença de adenomiomatose."),
+      check("Adenomiomatose", ". Presença de adenomiomatose.", { mode: "line" }),
       check(
         "Linfonodo_peri_cístico",
-        "\n- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
+        "- Linfonodo peri-cístico com hiperplasia linfoide reacional.",
+        { mode: "line" },
       ),
       check(
         "Tecido_hepático_aderido",
-        "\n- Rima de tecido hepático aderido com artefatos pré-analíticos de fulguração, discreto infiltrado inflamatório linfocitário periportal e esteatose discreta.",
+        "- Rima de tecido hepático aderido com artefatos pré-analíticos de fulguração, discreto infiltrado inflamatório linfocitário periportal e esteatose discreta.",
+        { mode: "line" },
       ),
     ],
     template:
@@ -685,7 +696,8 @@ const SEEDS: GastroSeed[] = [
     fields: [
       check(
         "Seios_de_Rokitanski_Aschoff_dilatados",
-        "\n. Seios de Rokitanski-Aschoff dilatados.",
+        ". Seios de Rokitanski-Aschoff dilatados.",
+        { mode: "line" },
       ),
     ],
     template:
@@ -711,15 +723,18 @@ const SEEDS: GastroSeed[] = [
       },
       check(
         "Hiperplasia_linfoide_folicular_reacional",
-        "\n- Hiperplasia linfoide folicular reacional.",
+        "- Hiperplasia linfoide folicular reacional.",
+        { mode: "line" },
       ),
       check(
         "Obliteração_fibrosa_da_ponta",
-        "\n- Obliteração fibrosa da ponta do apêndice.",
+        "- Obliteração fibrosa da ponta do apêndice.",
+        { mode: "line" },
       ),
       check(
         "Periapendicite_aguda_fibrinoleucocitária",
-        "\n- Periapendicite aguda fibrinoleucocitária.",
+        "- Periapendicite aguda fibrinoleucocitária.",
+        { mode: "line" },
       ),
     ],
     template:
@@ -775,6 +790,7 @@ export function buildGastroMasks(now = new Date().toISOString()): Mask[] {
       options: f.options,
       checked_text: f.checked_text,
       default_checked: f.default_checked,
+      line_mode: f.line_mode,
       measure_dims: f.measure_dims,
       unit: f.unit,
       required: false,

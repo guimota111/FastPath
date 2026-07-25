@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import type { Mask, VariableBlock } from "@/lib/types";
-import type { FieldType } from "@/lib/types";
+import type { FieldType, LineMode } from "@/lib/types";
 import {
   blocksToTemplate,
+  checkboxCheckedValue,
   collectFieldDefs,
   initialFieldValue,
   interpolateMask,
@@ -12,6 +13,7 @@ import {
   templateToBlocks,
 } from "@/lib/maskExecutor";
 import { useMaskStore } from "@/hooks/useMaskStore";
+import { TemplateEditor, type TemplateEditorHandle } from "./TemplateEditor";
 import { t } from "@/lib/i18n";
 
 interface Props {
@@ -49,7 +51,7 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
     () => new Set(existing ? collectFieldDefs(existing.blocks).map((f) => f.id) : []),
   );
-  const templateRef = useRef<HTMLTextAreaElement>(null);
+  const templateRef = useRef<TemplateEditorHandle>(null);
 
   // Persist continuously so closing the window never loses work.
   useEffect(() => {
@@ -110,30 +112,9 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
   const collapseAll = () => setCollapsedIds(new Set(fields.map((f) => f.id)));
   const expandAll = () => setCollapsedIds(new Set());
 
-  /** Insert the field's {{token}} at the template caret position. */
-  const insertToken = (f: VariableBlock) => {
-    const token = fieldToken(f);
-    const el = templateRef.current;
-    const start = el?.selectionStart ?? template.length;
-    const end = el?.selectionEnd ?? template.length;
-    setTemplate((tpl) => tpl.slice(0, start) + token + tpl.slice(end));
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.focus();
-      const pos = start + token.length;
-      el.setSelectionRange(pos, pos);
-    });
-  };
-
-  const onTemplateDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
-    e.preventDefault();
-    const text = e.dataTransfer.getData("text/plain");
-    if (!text) return;
-    const el = templateRef.current;
-    const start = el?.selectionStart ?? template.length;
-    const end = el?.selectionEnd ?? template.length;
-    setTemplate((tpl) => tpl.slice(0, start) + text + tpl.slice(end));
-  };
+  /** Drop the field's chip into the template at the caret. */
+  const insertToken = (f: VariableBlock) =>
+    templateRef.current?.insertVariable(f.variable_name);
 
   /** Switch a field's kind, seeding whatever that kind needs to work. */
   const setFieldType = (f: VariableBlock, type: FieldType) => {
@@ -159,7 +140,7 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
         const boxes = Array.from({ length: dims }, (_, i) => `${i + 1},0`).join(" x ");
         values[key] = f.unit?.trim() ? `${boxes} ${f.unit.trim()}` : boxes;
       } else if (f.field_type === "checkbox") {
-        values[key] = f.checked_text ?? "";
+        values[key] = checkboxCheckedValue(f);
       } else {
         values[key] = `[${f.variable_name.replace(/_/g, " ").toLowerCase()}]`;
       }
@@ -361,6 +342,30 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
                             }
                             className="min-h-[34px] w-full resize-y rounded-[10px] border border-line bg-white px-3 py-2 text-[13px] font-semibold leading-snug text-ink outline-none"
                           />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] font-bold text-muted">
+                              {t("editor.line_mode", lang)}
+                            </span>
+                            {(
+                              [
+                                ["inline", t("editor.line_mode_inline", lang)],
+                                ["line", t("editor.line_mode_line", lang)],
+                                ["paragraph", t("editor.line_mode_paragraph", lang)],
+                              ] as [LineMode, string][]
+                            ).map(([mode, label]) => (
+                              <button
+                                key={mode}
+                                onClick={() => updateField(f.id, { line_mode: mode })}
+                                className={`rounded-[10px] px-3 py-1.5 text-[11px] font-extrabold ${
+                                  (f.line_mode ?? "inline") === mode
+                                    ? "bg-brand text-white"
+                                    : "border border-line bg-white text-muted"
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
                           <button
                             onClick={() =>
                               updateField(f.id, { default_checked: !f.default_checked })
@@ -478,13 +483,13 @@ export function MaskEditorModal({ maskId, initialArea, onClose }: Props) {
               <div className="mb-1.5 text-[11.5px] font-extrabold uppercase tracking-[.4px] text-muted">
                 {t("editor.template", lang)}
               </div>
-              <textarea
+              <TemplateEditor
                 ref={templateRef}
                 value={template}
-                onChange={(e) => setTemplate(e.target.value)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={onTemplateDrop}
-                className="min-h-[260px] w-full resize-y rounded-[14px] border border-dashed border-mint-line bg-card p-3.5 text-sm font-semibold leading-relaxed text-ink outline-none"
+                onChange={setTemplate}
+                knownNames={fields.map((f) => f.variable_name)}
+                placeholder={t("editor.template_placeholder", lang)}
+                className="min-h-[260px] w-full overflow-y-auto whitespace-pre-wrap break-words rounded-[14px] border border-dashed border-mint-line bg-card p-3.5 text-sm font-semibold leading-relaxed text-ink outline-none empty:before:text-muted/70 empty:before:content-[attr(data-placeholder)]"
               />
             </div>
 

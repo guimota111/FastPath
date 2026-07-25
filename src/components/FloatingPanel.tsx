@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import type { ExecutionMethod, Mask, VariableBlock } from "@/lib/types";
 import {
+  checkboxCheckedValue,
   collectFieldDefs,
   composeMeasure,
   fieldExpectsInput,
@@ -330,7 +331,7 @@ export function FloatingPanel({ standalone = false }: Props) {
                     onClick={() =>
                       setValues((v) => ({
                         ...v,
-                        [key]: checked ? "" : (f.checked_text ?? ""),
+                        [key]: checked ? "" : checkboxCheckedValue(f),
                       }))
                     }
                     className="flex items-center gap-2.5 text-left"

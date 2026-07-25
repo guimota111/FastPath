@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { VariableBlock } from "./types";
 import {
+  checkboxCheckedValue,
   composeMeasure,
   fieldExpectsInput,
   initialFieldValue,
@@ -71,6 +72,30 @@ describe("splitMeasure", () => {
   it("honours the configured box count", () => {
     const f = measure({ measure_dims: 2, unit: "cm" });
     expect(splitMeasure("4 x 3 x 2 cm", f)).toEqual(["4", "3"]);
+  });
+});
+
+describe("checkboxCheckedValue", () => {
+  const box = (patch: Partial<VariableBlock> = {}) =>
+    measure({ field_type: "checkbox", checked_text: ". Colesterolose.", ...patch });
+
+  it("continues the current line by default", () => {
+    expect(checkboxCheckedValue(box())).toBe(". Colesterolose.");
+    expect(checkboxCheckedValue(box({ line_mode: "inline" }))).toBe(". Colesterolose.");
+  });
+
+  it("supplies the line break so the author never types one", () => {
+    expect(checkboxCheckedValue(box({ line_mode: "line" }))).toBe("\n. Colesterolose.");
+    expect(checkboxCheckedValue(box({ line_mode: "paragraph" }))).toBe(
+      "\n\n. Colesterolose.",
+    );
+  });
+
+  it("is empty when there is no text to insert", () => {
+    expect(checkboxCheckedValue(box({ checked_text: undefined }))).toBe("");
+    // A line break alone would still be inserted — the caller only uses this
+    // for a ticked box, and an empty text means the author has not filled it in.
+    expect(checkboxCheckedValue(box({ checked_text: "", line_mode: "line" }))).toBe("\n");
   });
 });
 

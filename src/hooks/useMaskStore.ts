@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { HistoryEntry, Mask, UserSettings } from "@/lib/types";
+import type { HistoryEntry, Mask, MaskBlock, UserSettings } from "@/lib/types";
 import { DEFAULT_AREAS, DEFAULT_SETTINGS } from "@/lib/constants";
 import { buildSeedMasks } from "@/lib/seedMasks";
 import { GASTRO_AREA, buildGastroMasks } from "@/lib/seedMasksGastro";
@@ -24,6 +24,33 @@ interface MaskState {
 
   addHistory: (entry: HistoryEntry) => void;
   clearHistory: () => void;
+}
+
+/**
+ * Rewrite locally edited checkboxes that still hide their line break inside
+ * `checked_text` (how they were stored before `line_mode` existed), so the
+ * editor shows the break as a choice rather than an invisible character.
+ */
+function liftCheckboxLineBreaks(blocks: MaskBlock[]): MaskBlock[] {
+  return blocks.map((block) => {
+    if (block.type === "conditional") {
+      return { ...block, blocks: liftCheckboxLineBreaks(block.blocks) };
+    }
+    if (
+      block.type !== "variable" ||
+      block.field_type !== "checkbox" ||
+      block.line_mode !== undefined ||
+      !block.checked_text?.startsWith("\n")
+    ) {
+      return block;
+    }
+    const paragraph = block.checked_text.startsWith("\n\n");
+    return {
+      ...block,
+      line_mode: paragraph ? "paragraph" : "line",
+      checked_text: block.checked_text.replace(/^\n+/, ""),
+    };
+  });
 }
 
 export const useMaskStore = create<MaskState>()(
@@ -73,7 +100,7 @@ export const useMaskStore = create<MaskState>()(
     }),
     {
       name: "fastpath-store",
-      version: 4,
+      version: 5,
       migrate: (persisted) => {
         const state = persisted as Partial<MaskState>;
         const settings = { ...DEFAULT_SETTINGS, ...state.settings };
@@ -87,12 +114,13 @@ export const useMaskStore = create<MaskState>()(
         // is not present yet are added, so local edits are never overwritten.
         // v4: reseed the Gastro masks that are still untouched, so the ones
         // whose fake-checkbox selects became real checkbox fields get replaced.
+        // v5: same reseed, now that checkbox line breaks moved into line_mode.
         const gastroSeeds = buildGastroMasks();
         const seedById = new Map(gastroSeeds.map((m) => [m.id, m]));
         const masks = (state.masks ?? []).map((m) => {
           const seed = seedById.get(m.id);
           if (seed && !m.updated_at) return seed; // never edited locally
-          return { ...m, area: m.area || "Geral" };
+          return { ...m, area: m.area || "Geral", blocks: liftCheckboxLineBreaks(m.blocks) };
         });
         const existingIds = new Set(masks.map((m) => m.id));
         for (const gastro of gastroSeeds) {

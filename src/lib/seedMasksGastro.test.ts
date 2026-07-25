@@ -112,8 +112,25 @@ describe("gastro seed masks", () => {
         expect(f.checked_text, `${mask.name}/${f.variable_name}`).toBeTruthy();
         // A default must never be set: it would resurrect the unticked text.
         expect(f.default, `${mask.name}/${f.variable_name}`).toBeUndefined();
+        // Line breaks belong in line_mode, never hidden inside the text.
+        expect(f.checked_text, `${mask.name}/${f.variable_name}`).not.toMatch(/^\n/);
       }
     }
+  });
+
+  it("puts own-line checkboxes on their own line via line_mode", () => {
+    const colecistite = masks.find((m) => m.id === "gastro-vesicula-colecistite")!;
+    const colesterolose = collectFieldDefs(colecistite.blocks).find(
+      (f) => f.variable_name === "Colesterolose",
+    )!;
+    expect(colesterolose.line_mode).toBe("line");
+    expect(colesterolose.checked_text).toBe(". Colesterolose.");
+
+    // Inline ones keep continuing the sentence they sit in.
+    const calculosa = collectFieldDefs(colecistite.blocks).find(
+      (f) => f.variable_name === "Calculosa",
+    )!;
+    expect(calculosa.line_mode ?? "inline").toBe("inline");
   });
 
   it("omits optional lines whose checkbox is unticked", () => {

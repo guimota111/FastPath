@@ -3,6 +3,7 @@
 
 import type {
   Condition,
+  LineMode,
   Mask,
   MaskBlock,
   VariableBlock,
@@ -178,6 +179,22 @@ export function splitMeasure(value: string, field: VariableBlock): string[] {
   return Array.from({ length: dims }, (_, i) => parts[i] ?? "");
 }
 
+/** Line break a checkbox's `line_mode` puts before its text. */
+const LINE_MODE_PREFIX: Record<LineMode, string> = {
+  inline: "",
+  line: "\n",
+  paragraph: "\n\n",
+};
+
+/**
+ * The text a ticked checkbox inserts, including the line break its `line_mode`
+ * asks for. Keeping the break out of `checked_text` means mask authors never
+ * have to type an invisible newline to get the field on its own line.
+ */
+export function checkboxCheckedValue(field: VariableBlock): string {
+  return LINE_MODE_PREFIX[field.line_mode ?? "inline"] + (field.checked_text ?? "");
+}
+
 /**
  * The value a field holds when a mask is first opened. Select fields land on
  * their first option and ticked checkboxes on their text; everything else
@@ -188,7 +205,7 @@ export function initialFieldValue(field: VariableBlock): string {
     case "select":
       return field.options?.[0] ?? "";
     case "checkbox":
-      return field.default_checked ? (field.checked_text ?? "") : "";
+      return field.default_checked ? checkboxCheckedValue(field) : "";
     default:
       return "";
   }
@@ -208,6 +225,13 @@ export function fieldExpectsInput(field: VariableBlock): boolean {
 // plus a list of field definitions; storage/execution uses the block tree.
 
 const PLACEHOLDER_RE = /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
+
+/**
+ * Matches a `{{variable}}` placeholder, capturing the name. Exposed so the
+ * template editor highlights exactly what the parser will recognise.
+ * Global + sticky state is per-call: always use with `matchAll`.
+ */
+export const PLACEHOLDER_PATTERN = PLACEHOLDER_RE;
 
 /** Collect every variable block in the tree, deduped by name, in order. */
 export function collectFieldDefs(blocks: MaskBlock[]): VariableBlock[] {

@@ -7,13 +7,15 @@
 // on every edit. Typing, Enter and paste are constrained to plain text so the
 // DOM never grows structure the serialiser cannot represent.
 
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   BOLD_MARKER,
   ITALIC_MARKER,
   placeholderPattern,
   normalizeMaskVariableName,
 } from "@/lib/maskExecutor";
+import { useMaskStore } from "@/hooks/useMaskStore";
+import { t } from "@/lib/i18n";
 
 export interface TemplateEditorHandle {
   /** Insert `{{name}}` at the caret (or at the end if not focused). */
@@ -67,11 +69,19 @@ function chipLabel(name: string): string {
 
 function chipHtml(name: string, known: boolean): string {
   return (
-    `<span data-var="${escapeHtml(name)}" contenteditable="false" ` +
+    `<span data-var="${escapeHtml(name)}" contenteditable="false" draggable="true" ` +
     `style="${CHIP_BASE};${chipStyleFor(name, known)}" ` +
     `title="${escapeHtml(chipLabel(name))}">${escapeHtml(chipLabel(name))}</span>`
   );
 }
+
+/**
+ * Drag payload marking "this is an existing chip being relocated within the
+ * template", distinct from the plain-text token drag the field list in
+ * MaskEditorModal uses to insert a fresh chip — dropping that should still
+ * insert a copy, not move anything.
+ */
+const CHIP_MOVE_MIME = "application/x-fastpath-chip-move";
 
 /**
  * Render the stored template string into chips + text, with the bold/italic
@@ -164,6 +174,120 @@ function elementFormatting(el: HTMLElement): { bold: boolean; italic: boolean } 
   };
 }
 
+const BOLD_TAGS = ["STRONG", "B"];
+const ITALIC_TAGS = ["EM", "I"];
+
+/** Whether `chip` has a bold/italic ancestor (stopping at `host`). */
+function chipFormatting(chip: HTMLElement, host: HTMLElement): { bold: boolean; italic: boolean } {
+  let bold = false;
+  let italic = false;
+  for (let el = chip.parentElement; el && el !== host; el = el.parentElement) {
+    const own = elementFormatting(el);
+    bold = bold || own.bold;
+    italic = italic || own.italic;
+  }
+  return { bold, italic };
+}
+
+/** Wrap `chip` in a new bold/italic element, right where it already sits. */
+function wrapChip(chip: HTMLElement, tag: "strong" | "em") {
+  const wrapper = document.createElement(tag);
+  chip.replaceWith(wrapper);
+  wrapper.appendChild(chip);
+}
+
+/**
+ * Undo `wrapChip`: find the nearest bold/italic ancestor that wraps nothing
+ * but this chip, and remove it. An ancestor shared with other content is left
+ * alone — that shouldn't happen (chips only ever get a wrapper of their own
+ * from `wrapChip`), but corrupting sibling formatting would be worse than a
+ * chip that stays formatted.
+ */
+function unwrapChip(chip: HTMLElement, host: HTMLElement, tags: string[]) {
+  for (let el = chip.parentElement; el && el !== host; el = el.parentElement) {
+    if (tags.includes(el.tagName)) {
+      if (el.childNodes.length === 1) el.replaceWith(el.firstChild as ChildNode);
+      return;
+    }
+  }
+}
+
+/**
+ * The node to actually relocate when dragging `chip`: itself, or the
+ * outermost bold/italic wrapper `wrapChip` gave it exclusively, so the chip's
+ * own formatting travels with it. A wrapper shared with other text is left
+ * behind wrapping whatever it still contains.
+ */
+export function chipMoveRoot(chip: HTMLElement, host: HTMLElement): HTMLElement {
+  let node: HTMLElement = chip;
+  while (node.parentElement && node.parentElement !== host) {
+    const parent = node.parentElement;
+    const isExclusiveWrapper =
+      (BOLD_TAGS.includes(parent.tagName) || ITALIC_TAGS.includes(parent.tagName)) &&
+      parent.childNodes.length === 1;
+    if (!isExclusiveWrapper) break;
+    node = parent;
+  }
+  return node;
+}
+
+/**
+ * The chip alone, when `range` selects it and nothing else — the shape a
+ * click on an atomic `contenteditable="false"` node produces (its parent as
+ * both start/end container, offsets bracketing just that one child). `null`
+ * for any other selection, including one that also covers surrounding text.
+ */
+export function getSelectedChipOnly(host: HTMLElement, range: Range): HTMLElement | null {
+  if (range.collapsed) return null;
+  if (range.startContainer !== range.endContainer) return null;
+  if (range.endOffset - range.startOffset !== 1) return null;
+  const container = range.startContainer;
+  if (!(container instanceof HTMLElement) || !host.contains(container)) return null;
+  const node = container.childNodes[range.startOffset];
+  return node instanceof HTMLElement && node.dataset.var !== undefined ? node : null;
+}
+
+/**
+ * `execCommand` treats a variable chip (`contenteditable="false"`) as opaque
+ * and skips it: selecting "text {{var}} text" and toggling bold wraps the
+ * text on either side but leaves the chip bare. Fix up every chip that was
+ * inside `range` so it ends up matching what the surrounding text just
+ * became, instead of silently sitting out the formatting it was selected
+ * for.
+ */
+export function fixChipFormatting(
+  host: HTMLElement,
+  chips: HTMLElement[],
+  format: "bold" | "italic",
+  turningOn: boolean,
+): void {
+  const tags = format === "bold" ? BOLD_TAGS : ITALIC_TAGS;
+  for (const chip of chips) {
+    if (!host.contains(chip)) continue; // execCommand rebuilt this node
+    const isFormatted = chipFormatting(chip, host)[format];
+    if (isFormatted === turningOn) continue;
+    if (turningOn) wrapChip(chip, format === "bold" ? "strong" : "em");
+    else unwrapChip(chip, host, tags);
+  }
+}
+
+/**
+ * The bold/italic state the toolbar should show. `document.queryCommandState`
+ * only knows about editable text, so it reports nothing useful when the
+ * selection is a lone chip (an atomic, non-editable node) — read the chip's
+ * own formatting directly for that case instead.
+ */
+function computeActive(host: HTMLElement): { bold: boolean; italic: boolean } {
+  const selection = window.getSelection();
+  const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+  const chip = range ? getSelectedChipOnly(host, range) : null;
+  if (chip) return chipFormatting(chip, host);
+  return {
+    bold: document.queryCommandState("bold"),
+    italic: document.queryCommandState("italic"),
+  };
+}
+
 /**
  * Serialise the editing surface back into the stored template string, turning
  * bold/italic elements back into markers.
@@ -250,6 +374,34 @@ export const TemplateEditor = forwardRef<TemplateEditorHandle, Props>(
     const rendered = useRef<string | null>(null);
     const knownRef = useRef<Set<string>>(new Set());
     knownRef.current = new Set(knownNames.map(normalizeMaskVariableName));
+    const lang = useMaskStore((s) => s.settings.language);
+
+    // The chip the author explicitly clicked, so a plain "B"/"I" press can
+    // target it — kept as a ref (not React state) and mirrored onto the node
+    // as a CSS class, independent of the browser's own selection, which is
+    // unreliable for an atomic contenteditable="false" node in WebView2.
+    const selectedChipRef = useRef<HTMLElement | null>(null);
+    const setSelectedChip = (chip: HTMLElement | null) => {
+      if (selectedChipRef.current === chip) return;
+      selectedChipRef.current?.classList.remove("chip-selected");
+      chip?.classList.add("chip-selected");
+      selectedChipRef.current = chip;
+    };
+
+    // The node currently being drag-relocated within the template (see
+    // chipMoveRoot) — set on dragstart, consumed on drop.
+    const draggingNodeRef = useRef<HTMLElement | null>(null);
+
+    // Whether the caret/selection is currently inside bold/italic text, so the
+    // toolbar can show it instead of leaving formatting invisible until the
+    // author notices the (subtle) weight difference in the rendered text.
+    const [active, setActive] = useState({ bold: false, italic: false });
+    const refreshActive = () => {
+      const host = hostRef.current;
+      if (!host) return;
+      const chip = selectedChipRef.current;
+      setActive(chip && host.contains(chip) ? chipFormatting(chip, host) : computeActive(host));
+    };
 
     useEffect(() => {
       const host = hostRef.current;
@@ -257,7 +409,21 @@ export const TemplateEditor = forwardRef<TemplateEditorHandle, Props>(
       if (rendered.current === value) return;
       host.innerHTML = toHtml(value, knownRef.current);
       rendered.current = value;
+      // The old chip nodes just got replaced wholesale.
+      selectedChipRef.current = null;
     }, [value, knownNames]);
+
+    useEffect(() => {
+      const syncActive = () => {
+        const host = hostRef.current;
+        if (!host || document.activeElement !== host) return;
+        refreshActive();
+      };
+      document.addEventListener("selectionchange", syncActive);
+      return () => document.removeEventListener("selectionchange", syncActive);
+      // Only reads refs, which always see the latest value — safe to run once.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const commit = () => {
       const host = hostRef.current;
@@ -265,6 +431,47 @@ export const TemplateEditor = forwardRef<TemplateEditorHandle, Props>(
       const next = serialize(host);
       rendered.current = next;
       onChange(next);
+    };
+
+    const toggleFormat = (format: "bold" | "italic") => {
+      const host = hostRef.current;
+      if (!host) return;
+
+      // A chip the author explicitly clicked has no editable text for
+      // execCommand to act on, so flip its own wrapper directly.
+      const stickyChip =
+        selectedChipRef.current && host.contains(selectedChipRef.current)
+          ? selectedChipRef.current
+          : null;
+      if (stickyChip) {
+        const turningOn = !chipFormatting(stickyChip, host)[format];
+        fixChipFormatting(host, [stickyChip], format, turningOn);
+        commit();
+        refreshActive();
+        return;
+      }
+
+      const selection = window.getSelection();
+      const range =
+        selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      // Chip elements themselves aren't touched by execCommand (it skips
+      // contenteditable="false" content), so grabbing them before the
+      // command runs is enough — no need for the Range to stay valid after.
+      const chipsInRange = range
+        ? Array.from(host.querySelectorAll<HTMLElement>("[data-var]")).filter((chip) =>
+            range.intersectsNode(chip),
+          )
+        : [];
+      const turningOn = !active[format];
+
+      host.focus();
+      // Ask for tags rather than inline styles; serialize accepts both,
+      // but tags keep the markup the template maps onto.
+      document.execCommand("styleWithCSS", false, "false");
+      document.execCommand(format);
+      fixChipFormatting(host, chipsInRange, format, turningOn);
+      commit();
+      refreshActive();
     };
 
     /** Insert a chip at `range`, leaving the caret right after it. */
@@ -312,72 +519,156 @@ export const TemplateEditor = forwardRef<TemplateEditorHandle, Props>(
       },
     }));
 
+    const toolbarButton = (format: "bold" | "italic", label: string) => (
+      <button
+        type="button"
+        title={t(format === "bold" ? "editor.bold" : "editor.italic", lang)}
+        aria-pressed={active[format]}
+        // Keep focus (and the selection) on the editor; a default mousedown
+        // would blur it before the click handler ever runs.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => toggleFormat(format)}
+        className={`flex h-6 w-6 items-center justify-center rounded-[6px] text-[13px] leading-none ${
+          format === "bold" ? "font-extrabold" : "italic"
+        } ${active[format] ? "bg-brand text-white" : "bg-sand text-ink"}`}
+      >
+        {label}
+      </button>
+    );
+
     return (
-      <div
-        ref={hostRef}
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-multiline="true"
-        data-placeholder={placeholder}
-        onInput={commit}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          // Keep the surface plain: Enter inserts a newline instead of letting
-          // the browser create block elements.
-          if (e.key === "Enter") {
-            e.preventDefault();
-            document.execCommand("insertText", false, "\n");
-            return;
-          }
-          const key = e.key.toLowerCase();
-          if ((e.ctrlKey || e.metaKey) && (key === "b" || key === "i")) {
-            e.preventDefault();
-            // Ask for tags rather than inline styles; serialize accepts both,
-            // but tags keep the markup the template maps onto.
-            document.execCommand("styleWithCSS", false, "false");
-            document.execCommand(key === "b" ? "bold" : "italic");
+      <div className="flex flex-col gap-1.5">
+        <div className="flex gap-1">
+          {toolbarButton("bold", "B")}
+          {toolbarButton("italic", "I")}
+        </div>
+        <div
+          ref={hostRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
+          data-placeholder={placeholder}
+          onInput={() => {
+            // Any edit means the author has moved on from the clicked chip.
+            setSelectedChip(null);
             commit();
-          }
-        }}
-        onPaste={(e) => {
-          e.preventDefault();
-          const text = e.clipboardData.getData("text/plain");
-          if (text) document.execCommand("insertText", false, text);
-        }}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          const dropped = e.dataTransfer.getData("text/plain");
-          if (!dropped) return;
-
-          // Drop lands where the pointer is, not where the caret was.
-          const doc = document as Document & {
-            caretRangeFromPoint?: (x: number, y: number) => Range | null;
-          };
-          const range =
-            doc.caretRangeFromPoint?.(e.clientX, e.clientY) ??
-            (() => {
-              const r = document.createRange();
-              if (hostRef.current) {
-                r.selectNodeContents(hostRef.current);
-                r.collapse(false);
+          }}
+          onFocus={refreshActive}
+          onBlur={() => {
+            commit();
+            setSelectedChip(null);
+            setActive({ bold: false, italic: false });
+          }}
+          onMouseDown={(e) => {
+            // Track the clicked chip ourselves instead of leaning on the
+            // browser's own selection around an atomic node, which WebView2
+            // doesn't reliably keep — this is what makes a plain "B" press
+            // target that one chip. Native click handling still runs (no
+            // preventDefault), so caret placement and chip deletion are
+            // unaffected.
+            const host = hostRef.current;
+            if (!host) return;
+            const chip = (e.target as HTMLElement).closest?.("[data-var]") as HTMLElement | null;
+            setSelectedChip(chip && host.contains(chip) ? chip : null);
+            if (chip) setActive(chipFormatting(chip, host));
+          }}
+          onKeyDown={(e) => {
+            // Keep the surface plain: Enter inserts a newline instead of letting
+            // the browser create block elements.
+            if (e.key === "Enter") {
+              e.preventDefault();
+              document.execCommand("insertText", false, "\n");
+              setSelectedChip(null);
+              return;
+            }
+            const key = e.key.toLowerCase();
+            if (key === "b" || key === "i") {
+              // Ctrl/Cmd+B(I) works anywhere; a clicked chip also takes the
+              // plain key, both so it's quick and so typing "b" over a
+              // selected chip doesn't fall through to deleting it.
+              if (e.ctrlKey || e.metaKey || selectedChipRef.current) {
+                e.preventDefault();
+                toggleFormat(key === "b" ? "bold" : "italic");
+                return;
               }
-              return r;
-            })();
-          if (!range || !hostRef.current?.contains(range.startContainer)) return;
+            }
+            // Any other key means the author is done with the clicked chip.
+            if (!e.ctrlKey && !e.metaKey) setSelectedChip(null);
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            const text = e.clipboardData.getData("text/plain");
+            if (text) document.execCommand("insertText", false, text);
+          }}
+          onDragStart={(e) => {
+            const host = hostRef.current;
+            const chip = (e.target as HTMLElement).closest?.("[data-var]") as HTMLElement | null;
+            if (!host || !chip || !host.contains(chip)) return;
+            e.dataTransfer.setData("text/plain", `{{${chip.dataset.var}}}`);
+            e.dataTransfer.setData(CHIP_MOVE_MIME, "1");
+            e.dataTransfer.effectAllowed = "move";
+            draggingNodeRef.current = chipMoveRoot(chip, host);
+            // Dragging is a different gesture from clicking to pick a
+            // format target; don't leave the ring on afterwards.
+            setSelectedChip(null);
+          }}
+          onDragEnd={() => {
+            draggingNodeRef.current = null;
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const host = hostRef.current;
+            const isChipMove = e.dataTransfer.types.includes(CHIP_MOVE_MIME);
+            const movingNode = draggingNodeRef.current;
+            draggingNodeRef.current = null;
 
-          const match = dropped.match(/^\s*\{\{\s*([\p{L}\p{N}_]+)\s*\}\}\s*$/u);
-          if (match) {
-            insertChipAt(range, normalizeMaskVariableName(match[1]));
-            return;
-          }
-          range.deleteContents();
-          range.insertNode(document.createTextNode(dropped));
-          commit();
-        }}
-        className={className}
-      />
+            // Drop lands where the pointer is, not where the caret was.
+            const doc = document as Document & {
+              caretRangeFromPoint?: (x: number, y: number) => Range | null;
+            };
+            const range =
+              doc.caretRangeFromPoint?.(e.clientX, e.clientY) ??
+              (() => {
+                const r = document.createRange();
+                if (hostRef.current) {
+                  r.selectNodeContents(hostRef.current);
+                  r.collapse(false);
+                }
+                return r;
+              })();
+            if (!range || !host?.contains(range.startContainer)) return;
+
+            // Relocating a chip already in the template: move the captured
+            // node (insertNode relocates rather than duplicates) instead of
+            // inserting a fresh copy.
+            if (isChipMove && movingNode && host.contains(movingNode)) {
+              range.insertNode(movingNode);
+              const after = document.createRange();
+              after.setStartAfter(movingNode);
+              after.collapse(true);
+              const selection = window.getSelection();
+              selection?.removeAllRanges();
+              selection?.addRange(after);
+              commit();
+              return;
+            }
+
+            const dropped = e.dataTransfer.getData("text/plain");
+            if (!dropped) return;
+            const match = dropped.match(/^\s*\{\{\s*([\p{L}\p{N}_]+)\s*\}\}\s*$/u);
+            if (match) {
+              insertChipAt(range, normalizeMaskVariableName(match[1]));
+              return;
+            }
+            range.deleteContents();
+            range.insertNode(document.createTextNode(dropped));
+            commit();
+          }}
+          className={`template-editor-surface ${className ?? ""}`}
+        />
+      </div>
     );
   },
 );

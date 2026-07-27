@@ -29,3 +29,53 @@ body {
     radial-gradient(110% 80% at 100% 0%, #eafbf1 0%, transparent 50%),
     #fbf5ec;
 }
+
+/*
+ * The template editor's base text is already font-semibold, so a plain
+ * <strong> (browser "bolder") barely reads as heavier — and execCommand can
+ * insert <b>/<i> directly while typing, bypassing TemplateEditor's own
+ * markup. A background wash makes formatting visible regardless of which
+ * tag produced it or how little the font's weight steps differ.
+ */
+.template-editor-surface strong,
+.template-editor-surface b {
+  font-weight: 800;
+  color: #000;
+  background: rgba(40, 199, 111, 0.22);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(40, 199, 111, 0.22);
+}
+.template-editor-surface em,
+.template-editor-surface i {
+  background: rgba(40, 199, 111, 0.1);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(40, 199, 111, 0.1);
+}
+
+/*
+ * Variable chips carry their own fixed background/border/weight (see
+ * chipHtml in TemplateEditor.tsx) so the strong/em rules above never show
+ * through them — there was no way to tell a bold chip from a plain one. A
+ * ring on the chip itself survives that, and bold/italic use different CSS
+ * properties (box-shadow vs outline) so a chip that is both still shows both
+ * rather than one clobbering the other.
+ */
+.template-editor-surface strong [data-var],
+.template-editor-surface b [data-var] {
+  box-shadow: 0 0 0 2px #1fa862;
+}
+.template-editor-surface em [data-var],
+.template-editor-surface i [data-var] {
+  outline: 2px dashed #1fa862;
+  outline-offset: 1px;
+}
+
+/*
+ * Clicking a chip marks it as the target of a plain B/I press (see
+ * TemplateEditor's selectedChipRef) — a ring in a different colour from the
+ * bold/italic indicators above so "selected" reads distinctly from "bold".
+ */
+.template-editor-surface [data-var].chip-selected {
+  outline: 2px solid #2f6fed;
+  outline-offset: 2px;
+}

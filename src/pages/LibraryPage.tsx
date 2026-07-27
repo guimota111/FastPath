@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
+import { v4 as uuid } from "uuid";
 import { useMaskStore } from "@/hooks/useMaskStore";
 import { MaskEditorModal } from "@/components/MaskEditorModal";
 import { allGroupKeys, groupMasksByArea, subareaKey } from "@/lib/maskGrouping";
 import { t } from "@/lib/i18n";
+import type { Mask } from "@/lib/types";
 
 export function LibraryPage() {
   const masks = useMaskStore((s) => s.masks);
@@ -11,6 +13,7 @@ export function LibraryPage() {
   const renameArea = useMaskStore((s) => s.renameArea);
   const deleteArea = useMaskStore((s) => s.deleteArea);
   const deleteMask = useMaskStore((s) => s.deleteMask);
+  const upsertMask = useMaskStore((s) => s.upsertMask);
   const lang = useMaskStore((s) => s.settings.language);
 
   const [newAreaName, setNewAreaName] = useState("");
@@ -42,6 +45,21 @@ export function LibraryPage() {
   const commitRename = () => {
     if (renaming) renameArea(renaming.area, renaming.value);
     setRenaming(null);
+  };
+
+  /** Copy a mask so it can be edited freely, using the original as a template. */
+  const duplicateMask = (mask: Mask) => {
+    const copy: Mask = {
+      ...mask,
+      id: uuid(),
+      name: `${mask.name} ${t("library.duplicate_suffix", lang)}`,
+      is_published: false,
+      is_official: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    upsertMask(copy);
+    setEditor({ maskId: copy.id, area: null });
   };
 
   return (
@@ -228,9 +246,16 @@ export function LibraryPage() {
                                     </span>
                                   </button>
                                   <button
+                                    onClick={() => duplicateMask(mask)}
+                                    title={t("library.duplicate_mask", lang)}
+                                    className="flex-shrink-0 px-1.5 py-0.5 text-sm font-bold text-muted hover:text-brand"
+                                  >
+                                    ⧉
+                                  </button>
+                                  <button
                                     onClick={() => deleteMask(mask.id)}
                                     title={t("button.delete", lang)}
-                                    className="px-1.5 py-0.5 text-base font-bold text-muted hover:text-red-500"
+                                    className="flex-shrink-0 px-1.5 py-0.5 text-base font-bold text-muted hover:text-red-500"
                                   >
                                     ×
                                   </button>

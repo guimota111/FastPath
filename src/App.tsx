@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FloatingPanel } from "./components/FloatingPanel";
 import { LibraryPage } from "./pages/LibraryPage";
 import { MarketplacePage } from "./pages/MarketplacePage";
@@ -11,6 +12,7 @@ import { useOsIntegration } from "./hooks/useOsIntegration";
 import { IS_TAURI, openPanel } from "./lib/panelWindow";
 import { t } from "./lib/i18n";
 import { isTrialActive, trialDaysLeft } from "./lib/constants";
+import logo from "./assets/logo.png";
 
 type Route = "library" | "marketplace" | "settings";
 
@@ -32,7 +34,7 @@ function PanelWindow() {
   }, []);
 
   return (
-    <div className="flex h-screen items-start justify-center bg-transparent p-2">
+    <div className="h-screen w-screen bg-transparent">
       <FloatingPanel standalone />
     </div>
   );
@@ -78,7 +80,7 @@ function MainApp() {
     <div className="flex h-screen flex-col overflow-hidden bg-cream text-ink">
       <header className="flex h-[58px] flex-shrink-0 items-center gap-4 border-b border-line bg-white px-5">
         <div className="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded-[14px] bg-sand">
-          <span className="font-display text-sm font-bold text-brand">F</span>
+          <img src={logo} alt="" className="h-[22px] w-[22px] object-contain" />
         </div>
         <span className="font-display text-[15px] font-bold text-ink">
           {t("app.name", lang)}
@@ -131,5 +133,5 @@ function MainApp() {
 }
 
 export default function App() {
-  return isPanelWindow() ? <PanelWindow /> : <MainApp />;
+  return <ErrorBoundary>{isPanelWindow() ? <PanelWindow /> : <MainApp />}</ErrorBoundary>;
 }

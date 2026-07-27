@@ -2,8 +2,16 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { HistoryEntry, Mask, MaskBlock, UserSettings } from "@/lib/types";
+import type {
+  ConditionOperator,
+  HistoryEntry,
+  Mask,
+  MaskBlock,
+  UserSettings,
+  VariableBlock,
+} from "@/lib/types";
 import { DEFAULT_AREAS, DEFAULT_SETTINGS } from "@/lib/constants";
+import { checkboxValue, normalizeMaskVariableName } from "@/lib/maskExecutor";
 import { buildSeedMasks } from "@/lib/seedMasks";
 import { GASTRO_AREA, buildGastroMasks } from "@/lib/seedMasksGastro";
 
@@ -36,6 +44,72 @@ interface MaskState {
 
 /** Seed packs shipped with the app, tracked so deletions stick. */
 const GASTRO_PACK = "gastro-guilisahk";
+
+/**
+ * Field visibility conditions shipped with a single `value`; they moved to an
+ * OR'd `values` list so more than one toggle can be active. Lift any
+ * still-persisted single-value condition into the new shape.
+ */
+function migrateFieldConditions(blocks: MaskBlock[]): MaskBlock[] {
+  return blocks.map((block) => {
+    if (block.type === "conditional") {
+      return { ...block, blocks: migrateFieldConditions(block.blocks) };
+    }
+    if (block.type === "variable" && block.condition && !("values" in block.condition)) {
+      const old = block.condition as unknown as {
+        variable_name: string;
+        operator: ConditionOperator;
+        value: string;
+      };
+      return {
+        ...block,
+        condition: { variable_name: old.variable_name, operator: old.operator, values: [old.value] },
+      };
+    }
+    return block;
+  });
+}
+
+/**
+ * A field condition sourced from a checkbox compared against its raw
+ * `checked_text`/`unchecked_text`, but the panel actually stores that text
+ * with the checkbox's `line_mode` break prepended (see `checkboxValue`) — so
+ * a condition on a checkbox using "line" or "paragraph" mode never matched.
+ * Rewrite any condition value that is really the un-prefixed text to the
+ * value the panel actually produces; a no-op for "inline" checkboxes, where
+ * the prefix is empty anyway.
+ */
+function migrateCheckboxConditionValues(blocks: MaskBlock[]): MaskBlock[] {
+  const byName = new Map<string, VariableBlock>();
+  const collect = (bs: MaskBlock[]) => {
+    for (const b of bs) {
+      if (b.type === "variable") byName.set(normalizeMaskVariableName(b.variable_name), b);
+      else if (b.type === "conditional") collect(b.blocks);
+    }
+  };
+  collect(blocks);
+
+  const fix = (bs: MaskBlock[]): MaskBlock[] =>
+    bs.map((block) => {
+      if (block.type === "conditional") return { ...block, blocks: fix(block.blocks) };
+      if (block.type !== "variable" || !block.condition) return block;
+      const source = byName.get(normalizeMaskVariableName(block.condition.variable_name));
+      if (source?.field_type !== "checkbox") return block;
+
+      const rawChecked = source.checked_text ?? "";
+      const rawUnchecked = source.unchecked_text ?? "";
+      const realChecked = checkboxValue(source, true);
+      const realUnchecked = checkboxValue(source, false);
+      const values = block.condition.values.map((v) => {
+        if (v === rawChecked && rawChecked !== realChecked) return realChecked;
+        if (v === rawUnchecked && rawUnchecked !== realUnchecked) return realUnchecked;
+        return v;
+      });
+      return { ...block, condition: { ...block.condition, values } };
+    });
+
+  return fix(blocks);
+}
 
 /**
  * Rewrite locally edited checkboxes that still hide their line break inside
@@ -131,7 +205,11 @@ export const useMaskStore = create<MaskState>()(
     }),
     {
       name: "fastpath-store",
-      version: 8,
+      // v11: field visibility conditions moved from a single `value` to an
+      // OR'd `values` list (see migrateFieldConditions) after v10 shipped.
+      // v12: checkbox-sourced field conditions compared against the wrong,
+      // un-prefixed text (see migrateCheckboxConditionValues) after v11 shipped.
+      version: 12,
       migrate: (persisted) => {
         const state = persisted as Partial<MaskState>;
         const settings = { ...DEFAULT_SETTINGS, ...state.settings };
@@ -150,7 +228,15 @@ export const useMaskStore = create<MaskState>()(
         const masks = (state.masks ?? []).map((m) => {
           const seed = seedById.get(m.id);
           if (seed && !m.updated_at) return seed; // never edited locally
-          return { ...m, area: m.area || "Geral", blocks: liftCheckboxLineBreaks(m.blocks) };
+          return {
+            ...m,
+            area: m.area || "Geral",
+            // v9: masks persisted before `category` existed never got one.
+            category: m.category || "Geral",
+            blocks: migrateCheckboxConditionValues(
+              migrateFieldConditions(liftCheckboxLineBreaks(m.blocks)),
+            ),
+          };
         });
 
         // v7: install the Gastro pack once and remember it, so masks (or the

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { serialize, toHtml } from "./TemplateEditor";
+import {
+  chipMoveRoot,
+  fixChipFormatting,
+  getSelectedChipOnly,
+  serialize,
+  toHtml,
+} from "./TemplateEditor";
 
 const known = new Set(["Localização", "Atrofia"]);
 
@@ -151,5 +157,117 @@ describe("formatting", () => {
   it("merges neighbouring elements that carry the same formatting", () => {
     // Browsers often split a styled run into several elements while editing.
     expect(serialize(surface("<b>a</b><b>b</b>"))).toBe("**ab**");
+  });
+});
+
+describe("fixChipFormatting", () => {
+  // execCommand treats a chip (contenteditable="false") as opaque and skips
+  // it, so this simulates exactly what the DOM looks like right after a bold
+  // toggle over "text {{X}} text": the text on both sides got wrapped, the
+  // chip in between did not.
+  const chipHtml = 'text <span data-var="X" contenteditable="false">X</span> text';
+
+  it("wraps a chip that execCommand skipped, matching the text around it", () => {
+    const host = surface(`<strong>text </strong><span data-var="X">X</span><strong> text</strong>`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    fixChipFormatting(host, [chip], "bold", true);
+    expect(serialize(host)).toBe("**text {{X}} text**");
+  });
+
+  it("unwraps a chip's own bold wrapper when turning bold off", () => {
+    const host = surface(`text <strong><span data-var="X">X</span></strong> text`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    fixChipFormatting(host, [chip], "bold", false);
+    expect(serialize(host)).toBe("text {{X}} text");
+  });
+
+  it("leaves an already-correct chip untouched", () => {
+    const host = surface(chipHtml);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    const before = host.innerHTML;
+    fixChipFormatting(host, [chip], "bold", false);
+    expect(host.innerHTML).toBe(before);
+  });
+
+  it("nests italic inside an existing bold wrapper rather than replacing it", () => {
+    const host = surface(`<strong><span data-var="X">X</span></strong>`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    fixChipFormatting(host, [chip], "italic", true);
+    expect(serialize(host)).toBe("**__{{X}}__**");
+  });
+
+  it("only touches chips it was given", () => {
+    const host = surface(`<span data-var="X">X</span> <span data-var="Y">Y</span>`);
+    const x = host.querySelector('[data-var="X"]') as HTMLElement;
+    fixChipFormatting(host, [x], "bold", true);
+    expect(serialize(host)).toBe("**{{X}}** {{Y}}");
+  });
+});
+
+describe("getSelectedChipOnly", () => {
+  it("returns the chip when the range selects exactly that node", () => {
+    const host = surface(`text <span data-var="X">X</span> text`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    const range = document.createRange();
+    range.selectNode(chip);
+    expect(getSelectedChipOnly(host, range)).toBe(chip);
+  });
+
+  it("returns null when the range also covers surrounding text", () => {
+    const host = surface(`text <span data-var="X">X</span> text`);
+    const range = document.createRange();
+    range.selectNodeContents(host);
+    expect(getSelectedChipOnly(host, range)).toBeNull();
+  });
+
+  it("returns null when two chips are selected together", () => {
+    const host = surface(`<span data-var="X">X</span><span data-var="Y">Y</span>`);
+    const range = document.createRange();
+    range.selectNodeContents(host);
+    expect(getSelectedChipOnly(host, range)).toBeNull();
+  });
+
+  it("returns null for a collapsed selection", () => {
+    const host = surface(`<span data-var="X">X</span>`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    const range = document.createRange();
+    range.selectNode(chip);
+    range.collapse(true);
+    expect(getSelectedChipOnly(host, range)).toBeNull();
+  });
+
+  it("returns null when the selected node is plain text, not a chip", () => {
+    const host = surface(`<span>plain</span>`);
+    const range = document.createRange();
+    range.selectNodeContents(host);
+    expect(getSelectedChipOnly(host, range)).toBeNull();
+  });
+});
+
+describe("chipMoveRoot", () => {
+  it("is just the chip when it carries no formatting of its own", () => {
+    const host = surface(`text <span data-var="X">X</span> text`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    expect(chipMoveRoot(chip, host)).toBe(chip);
+  });
+
+  it("includes a bold wrapper that belongs to the chip alone", () => {
+    const host = surface(`<strong><span data-var="X">X</span></strong>`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    const wrapper = chip.parentElement as HTMLElement;
+    expect(chipMoveRoot(chip, host)).toBe(wrapper);
+  });
+
+  it("includes nested exclusive bold+italic wrappers", () => {
+    const host = surface(`<strong><em><span data-var="X">X</span></em></strong>`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    const outer = chip.parentElement!.parentElement as HTMLElement;
+    expect(chipMoveRoot(chip, host)).toBe(outer);
+  });
+
+  it("stops at a bold wrapper shared with other text", () => {
+    const host = surface(`<strong>text <span data-var="X">X</span></strong>`);
+    const chip = host.querySelector("[data-var]") as HTMLElement;
+    expect(chipMoveRoot(chip, host)).toBe(chip);
   });
 });

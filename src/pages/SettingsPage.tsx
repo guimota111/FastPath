@@ -247,6 +247,33 @@ export function SettingsPage() {
               onClick={() => updateSettings({ alwaysOnTop: !settings.alwaysOnTop })}
             />
           </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-muted">
+              {t("settings.panel_side", lang)}
+            </span>
+            <div className="flex gap-1.5">
+              {(["left", "right"] as const).map((side) => (
+                <button
+                  key={side}
+                  onClick={() => updateSettings({ panelSide: side })}
+                  className={`rounded-[10px] px-3.5 py-2 text-xs font-extrabold ${
+                    settings.panelSide === side ? "bg-brand text-white" : "bg-sand text-ink"
+                  }`}
+                >
+                  {t(side === "left" ? "settings.panel_side_left" : "settings.panel_side_right", lang)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-muted">
+              {t("settings.show_preview", lang)}
+            </span>
+            <Toggle
+              on={settings.showPreview}
+              onClick={() => updateSettings({ showPreview: !settings.showPreview })}
+            />
+          </div>
           <div className="border-t border-line pt-4">
             <button
               onClick={clearHistory}

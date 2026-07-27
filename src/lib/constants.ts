@@ -47,6 +47,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   voiceSensitivity: 70,
   startWithOS: true,
   alwaysOnTop: true,
+  panelSide: "right",
+  showPreview: true,
+  previewSplit: 50,
 };
 
 /** Whether the given plan may publish to the marketplace. */

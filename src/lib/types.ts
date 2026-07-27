@@ -11,6 +11,10 @@ export type Plan = "trial" | "basic" | "creator";
  * - `select`: one of a fixed list of values
  * - `checkbox`: inserts `checked_text` when ticked, nothing when not
  * - `measure`: 1-3 numeric boxes joined by " x ", with an optional unit
+ * - `computed`: never shown in the panel — its text (`checked_text` or
+ *   `unchecked_text`, same as a checkbox) is picked automatically from
+ *   `computed_condition` against another field's value, e.g. a variable that
+ *   resolves to "mitose" or "mitoses" depending on a count elsewhere
  */
 export type FieldType =
   | "text"
@@ -18,7 +22,8 @@ export type FieldType =
   | "select"
   | "checkbox"
   | "measure"
-  | "multicheck";
+  | "multicheck"
+  | "computed";
 
 /**
  * Where a field's text lands, and what happens to the surrounding line break
@@ -32,7 +37,11 @@ export type FieldType =
  */
 export type LineMode = "inline" | "line" | "paragraph" | "conditional";
 
-export type ConditionOperator = "equals" | "contains";
+/**
+ * `gt`/`lt`/`gte`/`lte` compare both sides as numbers (parsed with `Number`)
+ * and never match when either side isn't a valid number.
+ */
+export type ConditionOperator = "equals" | "contains" | "gt" | "lt" | "gte" | "lte";
 
 /**
  * How generated text reaches the external report system:
@@ -100,12 +109,33 @@ export interface VariableBlock extends Formatting {
   /** `measure`: unit appended after the last box, e.g. "cm". */
   unit?: string;
   required: boolean;
+  /**
+   * Show this field in the floating panel only when another field's current
+   * value matches this condition. Undefined means always shown.
+   */
+  condition?: FieldCondition;
+  /**
+   * `computed`: which text this field resolves to — `checked_text` when this
+   * matches, `unchecked_text` otherwise. Never shown as an input.
+   */
+  computed_condition?: FieldCondition;
 }
 
 export interface Condition {
   variable_name: string;
   operator: ConditionOperator;
   value: string;
+}
+
+/**
+ * A field's visibility rule: shown when the source field's current value
+ * matches ANY of `values` (OR) — e.g. several ticked-option toggles left
+ * active on a `select` source.
+ */
+export interface FieldCondition {
+  variable_name: string;
+  operator: ConditionOperator;
+  values: string[];
 }
 
 /** A section that is only rendered when its condition is met. May nest. */
@@ -222,4 +252,10 @@ export interface UserSettings {
   voiceSensitivity: number;
   startWithOS: boolean;
   alwaysOnTop: boolean;
+  /** Which edge of the screen the floating panel docks to. */
+  panelSide: "left" | "right";
+  /** Whether the panel shows the generated-report preview below the fields. */
+  showPreview: boolean;
+  /** Height (%) the fields pane gets of the fields/preview split; the user drags this. */
+  previewSplit: number;
 }

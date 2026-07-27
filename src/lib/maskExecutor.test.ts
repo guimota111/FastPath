@@ -3,12 +3,15 @@ import {
   normalizeMaskVariableName,
   extractVariables,
   evaluateCondition,
+  isFieldVisible,
+  computedFieldValue,
   interpolateMask,
   validateMask,
   missingRequiredVariables,
   canCreateMask,
+  renderRuns,
 } from "./maskExecutor";
-import type { Mask, MaskBlock } from "./types";
+import type { Mask, MaskBlock, VariableBlock } from "./types";
 
 const v = (name: string, extra: Partial<MaskBlock> = {}): MaskBlock => ({
   id: name,
@@ -67,6 +70,86 @@ describe("evaluateCondition", () => {
     expect(
       evaluateCondition({ variable_name: "tipo lesao", operator: "equals", value: "a" }, { tipo_lesao: "a" }),
     ).toBe(true);
+  });
+
+  it("gt/lt/gte/lte compare as numbers", () => {
+    expect(evaluateCondition({ variable_name: "n", operator: "gt", value: "5" }, { n: "6" })).toBe(true);
+    expect(evaluateCondition({ variable_name: "n", operator: "gt", value: "5" }, { n: "5" })).toBe(false);
+    expect(evaluateCondition({ variable_name: "n", operator: "lt", value: "5" }, { n: "4" })).toBe(true);
+    expect(evaluateCondition({ variable_name: "n", operator: "gte", value: "5" }, { n: "5" })).toBe(true);
+    expect(evaluateCondition({ variable_name: "n", operator: "lte", value: "5" }, { n: "5" })).toBe(true);
+    expect(evaluateCondition({ variable_name: "n", operator: "lte", value: "5" }, { n: "6" })).toBe(false);
+  });
+
+  it("numeric operators never match a non-numeric value", () => {
+    expect(evaluateCondition({ variable_name: "n", operator: "gt", value: "5" }, { n: "muitas" })).toBe(false);
+    expect(evaluateCondition({ variable_name: "n", operator: "gt", value: "5" }, { n: "" })).toBe(false);
+    expect(evaluateCondition({ variable_name: "n", operator: "gt", value: "5" }, {})).toBe(false);
+  });
+});
+
+describe("isFieldVisible", () => {
+  it("is always visible without a condition", () => {
+    const f = v("qualquer") as VariableBlock;
+    expect(isFieldVisible(f, {})).toBe(true);
+  });
+
+  it("is visible when the condition matches the other field's current value", () => {
+    const f = v("grau", {
+      condition: { variable_name: "tem_grau", operator: "equals", values: ["Sim, tem grau"] },
+    }) as VariableBlock;
+    expect(isFieldVisible(f, { tem_grau: "Sim, tem grau" })).toBe(true);
+    expect(isFieldVisible(f, { tem_grau: "" })).toBe(false);
+    expect(isFieldVisible(f, {})).toBe(false);
+  });
+
+  it("is visible when the value matches ANY of several active toggles", () => {
+    const f = v("resumo", {
+      condition: { variable_name: "tipo", operator: "equals", values: ["A", "B"] },
+    }) as VariableBlock;
+    expect(isFieldVisible(f, { tipo: "A" })).toBe(true);
+    expect(isFieldVisible(f, { tipo: "B" })).toBe(true);
+    expect(isFieldVisible(f, { tipo: "C" })).toBe(false);
+  });
+
+  it("is never visible when no toggle is active", () => {
+    const f = v("resumo", {
+      condition: { variable_name: "tipo", operator: "equals", values: [] },
+    }) as VariableBlock;
+    expect(isFieldVisible(f, { tipo: "A" })).toBe(false);
+  });
+});
+
+describe("computedFieldValue", () => {
+  const mitosePalavra = (extra: Partial<VariableBlock> = {}) =>
+    v("mitose_palavra", {
+      field_type: "computed",
+      checked_text: "mitose",
+      unchecked_text: "mitoses",
+      computed_condition: { variable_name: "numero_mitoses", operator: "equals", values: ["1"] },
+      ...extra,
+    }) as VariableBlock;
+
+  it("resolves to checked_text when the condition holds", () => {
+    expect(computedFieldValue(mitosePalavra(), { numero_mitoses: "1" })).toBe("mitose");
+  });
+
+  it("resolves to unchecked_text otherwise", () => {
+    expect(computedFieldValue(mitosePalavra(), { numero_mitoses: "2" })).toBe("mitoses");
+    expect(computedFieldValue(mitosePalavra(), {})).toBe("mitoses");
+  });
+
+  it("works with a numeric operator against a free-typed count", () => {
+    const f = mitosePalavra({
+      computed_condition: { variable_name: "numero_mitoses", operator: "lte", values: ["1"] },
+    });
+    expect(computedFieldValue(f, { numero_mitoses: "0" })).toBe("mitose");
+    expect(computedFieldValue(f, { numero_mitoses: "1" })).toBe("mitose");
+    expect(computedFieldValue(f, { numero_mitoses: "2" })).toBe("mitoses");
+  });
+
+  it("is empty without a computed_condition", () => {
+    expect(computedFieldValue(v("x") as VariableBlock, {})).toBe("");
   });
 });
 
@@ -173,6 +256,71 @@ describe("missingRequiredVariables", () => {
   it("respects defaults on required fields", () => {
     const blocks: MaskBlock[] = [v("grau", { required: true, default: "I" })];
     expect(missingRequiredVariables(blocks, {})).toEqual([]);
+  });
+});
+
+describe("renderRuns formatting inside a field's own text", () => {
+  it("splits **/__ markers inside a select option into separate runs", () => {
+    const blocks: MaskBlock[] = [
+      v("achado", { field_type: "select", options: ["**Normal**, sem alterações"] }),
+    ];
+    const runs = renderRuns(blocks, { achado: "**Normal**, sem alterações" });
+    expect(runs).toEqual([
+      { text: "Normal", bold: true },
+      { text: ", sem alterações" },
+    ]);
+  });
+
+  it("splits markers inside checkbox checked/unchecked text", () => {
+    const blocks: MaskBlock[] = [
+      v("biopsia", {
+        field_type: "checkbox",
+        checked_text: "__achado positivo__",
+        unchecked_text: "sem achados",
+      }),
+    ];
+    expect(renderRuns(blocks, { biopsia: "__achado positivo__" })).toEqual([
+      { text: "achado positivo", italic: true },
+    ]);
+  });
+
+  it("adds emphasis on top of the block's own formatting rather than replacing it", () => {
+    const blocks: MaskBlock[] = [
+      v("achado", { field_type: "select", bold: true, options: ["normal __e claro__"] }),
+    ];
+    expect(renderRuns(blocks, { achado: "normal __e claro__" })).toEqual([
+      { text: "normal ", bold: true },
+      { text: "e claro", bold: true, italic: true },
+    ]);
+  });
+
+  it("falls back to the author's default text for text/textarea fields, markers included", () => {
+    const blocks: MaskBlock[] = [v("nota", { field_type: "text", default: "**ver abaixo**" })];
+    expect(renderRuns(blocks, {})).toEqual([{ text: "ver abaixo", bold: true }]);
+  });
+
+  it("never reads markers out of what the report writer actually typed", () => {
+    const blocks: MaskBlock[] = [v("nota", { field_type: "text" })];
+    expect(renderRuns(blocks, { nota: "2** de 3 lâminas __revisadas__" })).toEqual([
+      { text: "2** de 3 lâminas __revisadas__" },
+    ]);
+  });
+
+  it("does the same for textarea and multicheck combination text", () => {
+    expect(
+      renderRuns([v("obs", { field_type: "textarea" })], { obs: "livre **texto**" }),
+    ).toEqual([{ text: "livre **texto**" }]);
+
+    const multi: MaskBlock[] = [
+      v("itens", {
+        field_type: "multicheck",
+        combinations: [{ items: ["a"], text: "**a** presente" }],
+      }),
+    ];
+    expect(renderRuns(multi, { itens: "**a** presente" })).toEqual([
+      { text: "a", bold: true },
+      { text: " presente" },
+    ]);
   });
 });
 

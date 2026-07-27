@@ -3,6 +3,7 @@
 
 import type {
   Condition,
+  FieldCondition,
   LineMode,
   Mask,
   MaskBlock,
@@ -37,6 +38,14 @@ export function extractVariables(blocks: MaskBlock[]): string[] {
   return [...seen];
 }
 
+/** `s` as a number, or null if it isn't one — an empty string is not a number. */
+function parseNumeric(s: string): number | null {
+  const trimmed = s.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function evaluateCondition(
   cond: Condition,
   variables: Record<string, string>,
@@ -49,20 +58,122 @@ export function evaluateCondition(
       return value === cond.value;
     case "contains":
       return value.includes(cond.value);
+    case "gt":
+    case "lt":
+    case "gte":
+    case "lte": {
+      const actual = parseNumeric(value);
+      const target = parseNumeric(cond.value);
+      if (actual === null || target === null) return false;
+      if (cond.operator === "gt") return actual > target;
+      if (cond.operator === "lt") return actual < target;
+      if (cond.operator === "gte") return actual >= target;
+      return actual <= target;
+    }
     default:
       return false;
   }
 }
 
-/** Resolve the value for a variable block, falling back to its default. */
+/**
+ * Whether a `FieldCondition` currently holds: the source field's value
+ * matches ANY of its listed values (OR) — an empty list never matches.
+ */
+function matchesFieldCondition(
+  cond: FieldCondition,
+  values: Record<string, string>,
+): boolean {
+  const { variable_name, operator, values: wanted } = cond;
+  return wanted.some((value) => evaluateCondition({ variable_name, operator, value }, values));
+}
+
+/**
+ * Whether a field should currently be shown, given its own visibility
+ * condition (if any) evaluated against the other fields' present values.
+ */
+export function isFieldVisible(
+  field: VariableBlock,
+  values: Record<string, string>,
+): boolean {
+  return !field.condition || matchesFieldCondition(field.condition, values);
+}
+
+/**
+ * The text a `computed` field resolves to: `checked_text` when
+ * `computed_condition` holds, `unchecked_text` otherwise — the same shape as
+ * a checkbox, just driven by another field's value instead of a user click.
+ */
+export function computedFieldValue(
+  field: VariableBlock,
+  values: Record<string, string>,
+): string {
+  if (!field.computed_condition) return "";
+  return checkboxValue(field, matchesFieldCondition(field.computed_condition, values));
+}
+
+/**
+ * Resolve the value for a variable block, falling back to its default, and
+ * say whether that text is something the mask *author* wrote (default,
+ * select option, checkbox/multicheck text) versus something the report
+ * writer typed live into a `text`/`textarea` field.
+ *
+ * The distinction matters for `**`/`__` markers: authored text may contain
+ * them on purpose (see `pushAuthoredText`), but a free-typed value is the
+ * report writer's own words and must never have stray asterisks read back as
+ * formatting.
+ */
 function resolveVariableValue(
   block: VariableBlock,
   variables: Record<string, string>,
-): string {
+): { text: string; authored: boolean } {
   const key = normalizeMaskVariableName(block.variable_name);
   const provided = variables[key];
-  if (provided !== undefined && provided !== "") return provided;
-  return block.default ?? "";
+  if (provided !== undefined && provided !== "") {
+    return { text: provided, authored: block.field_type !== "text" && block.field_type !== "textarea" };
+  }
+  return { text: block.default ?? "", authored: true };
+}
+
+/**
+ * Push authored text (a field's default, option or checkbox/multicheck
+ * wording), splitting it on `**`/`__` markers the mask author may have typed
+ * directly into that field's config. Markers only add emphasis on top of
+ * `baseBold`/`baseItalic` — they cannot turn off formatting the surrounding
+ * template already applied to the whole field.
+ */
+function pushAuthoredText(
+  push: (text: string, bold: boolean, italic: boolean) => void,
+  text: string,
+  baseBold: boolean,
+  baseItalic: boolean,
+): void {
+  let bold = false;
+  let italic = false;
+  let pending = "";
+  let i = 0;
+
+  const flush = () => {
+    if (pending !== "") push(pending, baseBold || bold, baseItalic || italic);
+    pending = "";
+  };
+
+  while (i < text.length) {
+    if (text.startsWith(BOLD_MARKER, i)) {
+      flush();
+      bold = !bold;
+      i += BOLD_MARKER.length;
+      continue;
+    }
+    if (text.startsWith(ITALIC_MARKER, i)) {
+      flush();
+      italic = !italic;
+      i += ITALIC_MARKER.length;
+      continue;
+    }
+    pending += text[i];
+    i += 1;
+  }
+  flush();
 }
 
 /**
@@ -105,12 +216,16 @@ export function renderRuns(
           push(block.content, !!block.bold, !!block.italic);
           break;
         case "variable": {
-          const value = resolveVariableValue(block, variables);
+          const { text: value, authored } = resolveVariableValue(block, variables);
           // A "conditional" field takes its line break from the template, which
           // lets the author stack placeholders one per line. When the field is
           // empty that break has to go too, or it leaves a blank line behind.
           if (value === "" && block.line_mode === "conditional") dropTrailingNewline();
-          push(value, !!block.bold, !!block.italic);
+          if (authored) {
+            pushAuthoredText(push, value, !!block.bold, !!block.italic);
+          } else {
+            push(value, !!block.bold, !!block.italic);
+          }
           break;
         }
         case "conditional":
@@ -178,7 +293,7 @@ export function missingRequiredVariables(
   const visit = (bs: MaskBlock[]) => {
     for (const block of bs) {
       if (block.type === "variable" && block.required) {
-        const value = resolveVariableValue(block, variables);
+        const { text: value } = resolveVariableValue(block, variables);
         if (value === "") missing.add(normalizeMaskVariableName(block.variable_name));
       } else if (block.type === "conditional") {
         // Only require fields inside a branch that is actually rendered.
